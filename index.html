@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="MON"/>
+  <meta name="theme-color" content="#e8d5f5"/>
+  <title>MON</title>
+  <style>
+    /* System font stack — works fully offline, no external requests */
+    body { font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; }
+    .serif { font-family: 'Georgia', 'Times New Roman', serif; }
+  </style>
+  <style>
+    /* ── PALETTE ─────────────────────────────────────────── */
+    :root {
+      /* Base */
+      --bg:           #f0e8f8;          /* lavender mist */
+      --bg2:          #e8d5f5;          /* soft purple */
+      --bg3:          #fce4f0;          /* blush pink */
+      --bg4:          #ddeeff;          /* powder blue */
+      --card:         rgba(255,255,255,0.78);
+      --card-solid:   #ffffff;
+      --border:       rgba(160,120,200,0.18);
+      --border2:      rgba(160,120,200,0.30);
+
+      /* Text */
+      --text:         #2d1f4e;          /* deep purple */
+      --text2:        #7a6a96;          /* muted purple */
+      --text3:        #b8a8d0;          /* light purple */
+
+      /* Accent purple */
+      --purple:       #9b6dce;
+      --purple-light: #e8d5f5;
+      --purple-dark:  #5c3d99;
+
+      /* Pink */
+      --pink:         #e06fa8;
+      --pink-light:   #fce4f0;
+      --pink-dark:    #a0306a;
+
+      /* Blue */
+      --blue:         #5b9bd5;
+      --blue-light:   #ddeeff;
+      --blue-dark:    #1e4f8a;
+
+      /* Semantic */
+      --green:        #3db87a;
+      --green-light:  #d4f5e5;
+      --green-dark:   #1a6644;
+      --red:          #e05555;
+      --red-light:    #fde8e8;
+      --red-dark:     #8b1a1a;
+      --warn:         #e8973a;
+      --warn-light:   #fdf0e0;
+      --warn-dark:    #7a4200;
+
+      /* PHP */
+      --php:          #7c5cbf;
+      --php-light:    #ede0ff;
+      --php-dark:     #3d1f7a;
+
+      /* Layout */
+      --radius:       18px;
+      --radius-sm:    12px;
+      --radius-xs:    8px;
+      --safe-top:     env(safe-area-inset-top, 54px);
+      --safe-bot:     env(safe-area-inset-bottom, 34px);
+      --safe-left:    env(safe-area-inset-left, 0px);
+      --safe-right:   env(safe-area-inset-right, 0px);
+
+      /* Shadows */
+      --shadow-card:  0 2px 16px rgba(120,80,180,0.10), 0 1px 4px rgba(120,80,180,0.07);
+      --shadow-lg:    0 8px 32px rgba(120,80,180,0.18), 0 2px 8px rgba(120,80,180,0.10);
+    }
+
+    /* ── RESET ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); }
+    body { font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif; }
+
+    /* ── LOCK SCREEN ─────────────────────────────────────── */
+    #lock-screen {
+      position: fixed; inset: 0; z-index: 1000;
+      background: linear-gradient(145deg, #e8d5f5 0%, #fce4f0 40%, #ddeeff 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 40px 32px calc(var(--safe-bot) + 40px);
+    }
+    .lock-logo {
+      width: 80px; height: 80px; border-radius: 24px;
+      background: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 38px; margin-bottom: 24px;
+      box-shadow: 0 8px 32px rgba(155,109,206,0.35);
+      animation: logoBounce 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes logoBounce { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .lock-title { font-family: Georgia, 'Times New Roman', serif; font-size: 28px; color: var(--text); margin-bottom: 6px; text-align: center; }
+    .lock-sub { font-size: 14px; color: var(--text2); margin-bottom: 40px; text-align: center; }
+    .lock-dots { display: flex; gap: 16px; margin-bottom: 36px; }
+    .lock-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--purple); background: transparent; transition: all 0.2s; }
+    .lock-dot.filled { background: var(--purple); border-color: var(--purple); transform: scale(1.1); }
+    .lock-dot.error { border-color: var(--red); background: var(--red); }
+    .pin-pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; }
+    .pin-key {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: rgba(255,255,255,0.7); border: none; cursor: pointer;
+      font-size: 24px; font-weight: 500; color: var(--text); font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      box-shadow: 0 2px 12px rgba(120,80,180,0.12);
+      transition: all 0.12s; backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .pin-key:active { background: var(--purple-light); transform: scale(0.93); }
+    .pin-key .sub-letters { font-size: 9px; font-weight: 600; letter-spacing: 0.1em; color: var(--text3); margin-top: 2px; }
+    .pin-key.del-key { font-size: 20px; }
+    .lock-error { font-size: 13px; color: var(--red); margin-top: 16px; min-height: 18px; text-align: center; font-weight: 500; }
+    .lock-set-hint { font-size: 12px; color: var(--text2); margin-top: 12px; text-align: center; }
+
+    /* ── APP SHELL ────────────────────────────────────────── */
+    #app {
+      display: flex; flex-direction: column; height: 100%;
+      max-width: 430px; margin: 0 auto; position: relative;
+      background: linear-gradient(160deg, #f0e8f8 0%, #fce4f0 55%, #e8f0fd 100%);
+    }
+
+    /* ── HEADER ──────────────────────────────────────────── */
+    #header {
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-bottom: 0.5px solid var(--border2);
+      padding: calc(var(--safe-top) + 4px) 18px 12px;
+      flex-shrink: 0;
+    }
+    #header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    #header-top h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 22px; color: var(--text); }
+    #header-date { font-size: 12px; color: var(--text2); font-weight: 400; }
+    #rate-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 500;
+      background: linear-gradient(90deg, var(--php-light), var(--blue-light));
+      color: var(--php-dark); border-radius: 20px; padding: 5px 12px;
+      border: 0.5px solid rgba(124,92,191,0.2);
+    }
+    .rate-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--php); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
+
+    /* ── NAV ─────────────────────────────────────────────── */
+    #nav {
+      display: flex; flex-shrink: 0;
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-bottom: 0.5px solid var(--border2);
+      padding: 0 4px;
+    }
+    .nav-btn {
+      flex: 1; padding: 11px 4px 10px; font-size: 11px; font-weight: 600;
+      color: var(--text3); background: none; border: none;
+      border-bottom: 2.5px solid transparent; cursor: pointer;
+      font-family: -apple-system, 'Helvetica Neue', sans-serif; letter-spacing: 0.02em;
+      transition: all 0.18s; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .nav-btn .nav-icon { font-size: 17px; }
+    .nav-btn.active { color: var(--purple); border-bottom-color: var(--purple); }
+
+    /* ── SCROLL CONTENT ──────────────────────────────────── */
+    #content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-bot) + 24px); }
+    .tab { display: none; padding: 16px; }
+    .tab.active { display: block; animation: fadeUp 0.22s ease both; }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+    /* ── DAILY BANNER ────────────────────────────────────── */
+    .banner {
+      border-radius: var(--radius); padding: 20px 20px 16px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .banner::before {
+      content: ''; position: absolute; inset: 0;
+      background: inherit; opacity: 0.12; border-radius: inherit;
+    }
+    .banner.ok   { background: linear-gradient(135deg, #d4f5e5, #c8f0e0); border: 0.5px solid rgba(61,184,122,0.25); }
+    .banner.warn { background: linear-gradient(135deg, #fdf0e0, #fde8cc); border: 0.5px solid rgba(232,151,58,0.25); }
+    .banner.bad  { background: linear-gradient(135deg, #fde8e8, #fdd8d8); border: 0.5px solid rgba(224,85,85,0.25); }
+    .banner-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 6px; opacity: 0.7; }
+    .banner.ok   .banner-eyebrow { color: var(--green-dark); }
+    .banner.warn .banner-eyebrow { color: var(--warn-dark); }
+    .banner.bad  .banner-eyebrow { color: var(--red-dark); }
+    .banner-msg { font-size: 14px; line-height: 1.55; margin-bottom: 6px; font-weight: 400; }
+    .banner.ok   .banner-msg { color: var(--green-dark); }
+    .banner.warn .banner-msg { color: var(--warn-dark); }
+    .banner.bad  .banner-msg { color: var(--red-dark); }
+    .banner-amount { font-family: Georgia, 'Times New Roman', serif; font-size: 42px; letter-spacing: -1px; line-height: 1; margin: 6px 0 4px; }
+    .banner.ok   .banner-amount { color: var(--green-dark); }
+    .banner.warn .banner-amount { color: var(--warn-dark); }
+    .banner.bad  .banner-amount { color: var(--red-dark); }
+    .banner-sub { font-size: 12px; opacity: 0.65; line-height: 1.4; }
+    .banner.ok   .banner-sub { color: var(--green-dark); }
+    .banner.warn .banner-sub { color: var(--warn-dark); }
+    .banner.bad  .banner-sub { color: var(--red-dark); }
+
+    /* ── METRICS GRID ────────────────────────────────────── */
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .metric {
+      border-radius: var(--radius-sm); padding: 14px;
+      box-shadow: var(--shadow-card);
+    }
+    .metric.blue  { background: linear-gradient(135deg, #e8f4ff, #d8ecff); border: 0.5px solid rgba(91,155,213,0.2); }
+    .metric.pink  { background: linear-gradient(135deg, #fce8f4, #f8ddf0); border: 0.5px solid rgba(224,111,168,0.2); }
+    .metric.purp  { background: linear-gradient(135deg, #f0eaff, #e8deff); border: 0.5px solid rgba(155,109,206,0.2); }
+    .metric.white { background: rgba(255,255,255,0.85); border: 0.5px solid var(--border2); }
+    .metric-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
+    .metric.blue  .metric-label { color: var(--blue-dark); }
+    .metric.pink  .metric-label { color: var(--pink-dark); }
+    .metric.purp  .metric-label { color: var(--purple-dark); }
+    .metric.white .metric-label { color: var(--text2); }
+    .metric-val { font-family: Georgia, 'Times New Roman', serif; font-size: 22px; color: var(--text); }
+    .metric-val.green { color: var(--green-dark); }
+    .metric-val.red   { color: var(--red-dark); }
+    .metric-val.warn  { color: var(--warn-dark); }
+    .metric-val.purp  { color: var(--purple-dark); }
+
+    /* ── SECTION LABEL ───────────────────────────────────── */
+    .section-label { font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text2); margin-bottom: 9px; padding-left: 2px; }
+
+    /* ── LIST CARDS ──────────────────────────────────────── */
+    .list-card {
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-radius: var(--radius); overflow: hidden;
+      border: 0.5px solid var(--border2); margin-bottom: 16px;
+      box-shadow: var(--shadow-card);
+    }
+    .list-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 0.5px solid var(--border); }
+    .list-row:last-child { border-bottom: none; }
+    .list-row.php-tint { background: linear-gradient(90deg, var(--php-light) 0%, rgba(255,255,255,0) 80%); }
+    .row-icon {
+      width: 38px; height: 38px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .icon-salary { background: linear-gradient(135deg, var(--green-light), #b8f0d4); }
+    .icon-income { background: linear-gradient(135deg, var(--blue-light), #c8e8ff); }
+    .icon-spend  { background: linear-gradient(135deg, var(--red-light), #ffd0d0); }
+    .icon-bill   { background: linear-gradient(135deg, var(--warn-light), #fde0b8); }
+    .icon-php    { background: linear-gradient(135deg, var(--php-light), #ddd0ff); }
+    .row-info { flex: 1; min-width: 0; }
+    .row-name { font-size: 15px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-sub  { font-size: 12px; color: var(--text2); margin-top: 2px; line-height: 1.35; }
+    .row-amount { font-size: 15px; font-weight: 700; white-space: nowrap; }
+    .row-amount.green { color: var(--green-dark); }
+    .row-amount.red   { color: var(--red-dark); }
+    .row-amount.warn  { color: var(--warn-dark); }
+    .row-amount.php   { color: var(--php-dark); }
+    .row-amount.purp  { color: var(--purple-dark); }
+    .row-del { background: none; border: none; color: var(--text3); font-size: 22px; cursor: pointer; padding: 0 2px; line-height: 1; font-family: inherit; flex-shrink: 0; }
+    .empty-row { padding: 28px; text-align: center; font-size: 14px; color: var(--text3); }
+
+    /* ── CHIPS / TAGS ────────────────────────────────────── */
+    .tag { font-size: 9px; font-weight: 700; border-radius: 5px; padding: 2px 6px; margin-left: 5px; vertical-align: middle; display: inline-block; letter-spacing: 0.04em; }
+    .tag-warn { background: var(--warn-light); color: var(--warn-dark); }
+    .tag-php  { background: var(--php-light);  color: var(--php-dark); }
+    .tag-red  { background: var(--red-light);  color: var(--red-dark); }
+    .tag-green{ background: var(--green-light);color: var(--green-dark); }
+
+    /* ── TYPE PICKER ─────────────────────────────────────── */
+    .type-picker { display: flex; gap: 8px; margin-bottom: 10px; }
+    .type-pill {
+      flex: 1; padding: 9px 6px; border-radius: 20px;
+      border: 1.5px solid var(--border2); font-size: 12px; font-weight: 700;
+      cursor: pointer; background: rgba(255,255,255,0.6); color: var(--text2);
+      text-align: center; font-family: -apple-system, 'Helvetica Neue', sans-serif; transition: all 0.15s;
+    }
+    .type-pill.active-spend  { background: var(--red-light);   color: var(--red-dark);   border-color: var(--red); }
+    .type-pill.active-income { background: var(--blue-light);  color: var(--blue-dark);  border-color: var(--blue); }
+    .type-pill.active-salary { background: var(--green-light); color: var(--green-dark); border-color: var(--green); }
+
+    /* ── QUICK LOG BAR ───────────────────────────────────── */
+    .quick-bar {
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-radius: var(--radius-sm); display: flex; align-items: center;
+      gap: 8px; padding: 4px 8px; margin-bottom: 16px;
+      border: 0.5px solid var(--border2); box-shadow: var(--shadow-card);
+    }
+    .quick-bar input { background: transparent; border: none; font-size: 15px; color: var(--text); font-family: -apple-system, 'Helvetica Neue', sans-serif; outline: none; }
+    .quick-bar input::placeholder { color: var(--text3); }
+    #q-desc { flex: 1; padding: 10px 6px; }
+    #q-amt  { width: 76px; text-align: right; padding: 10px 6px; font-weight: 600; }
+    .q-divider { width: 0.5px; height: 24px; background: var(--border2); flex-shrink: 0; }
+    .q-add-btn {
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: #fff; border: none; border-radius: var(--radius-xs);
+      padding: 9px 16px; font-size: 14px; font-weight: 700;
+      cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif; white-space: nowrap;
+      box-shadow: 0 2px 10px rgba(155,109,206,0.30); transition: all 0.15s;
+    }
+    .q-add-btn:active { opacity: 0.85; transform: scale(0.97); }
+
+    /* ── SUMMARY CARD ────────────────────────────────────── */
+    .summary-card {
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-radius: var(--radius); padding: 16px;
+      border: 0.5px solid var(--border2); margin-bottom: 16px;
+      box-shadow: var(--shadow-card);
+    }
+    .summary-title { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 12px; }
+    .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-lbl { font-size: 14px; color: var(--text2); }
+    .summary-val { font-size: 16px; font-weight: 700; }
+    .summary-val.green { color: var(--green-dark); }
+    .summary-val.red   { color: var(--red-dark); }
+    .summary-val.warn  { color: var(--warn-dark); }
+    .summary-val.purp  { color: var(--purple-dark); }
+
+    /* ── OVERDUE BANNER ──────────────────────────────────── */
+    .overdue-banner {
+      background: linear-gradient(135deg, var(--red-light), #ffd8d8);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px;
+      border: 0.5px solid rgba(224,85,85,0.25); box-shadow: var(--shadow-card);
+    }
+    .overdue-title { font-size: 13px; font-weight: 700; color: var(--red-dark); margin-bottom: 8px; }
+    .overdue-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
+    .overdue-lbl { font-size: 13px; color: var(--red-dark); }
+    .overdue-mark { background: var(--red); color: #fff; border: none; border-radius: var(--radius-xs); padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif; }
+
+    /* ── PHP CARD ────────────────────────────────────────── */
+    .php-card {
+      background: linear-gradient(135deg, var(--php-light), #e0d4ff);
+      border-radius: var(--radius); padding: 16px;
+      border: 0.5px solid rgba(124,92,191,0.25); margin-bottom: 12px;
+      box-shadow: var(--shadow-card);
+    }
+    .php-card-title { font-size: 14px; font-weight: 700; color: var(--php-dark); margin-bottom: 10px; }
+    .php-card-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 0.5px solid rgba(124,92,191,0.15); }
+    .php-card-row:last-child { border-bottom: none; }
+    .php-card-lbl { font-size: 13px; color: var(--php); }
+    .php-card-val { font-size: 14px; font-weight: 700; color: var(--php-dark); }
+
+    /* ── ADD BUTTON ──────────────────────────────────────── */
+    .add-btn {
+      width: 100%; padding: 15px; border-radius: var(--radius);
+      border: 1.5px dashed rgba(155,109,206,0.35);
+      background: rgba(255,255,255,0.5); font-size: 15px;
+      color: var(--purple); cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all 0.15s;
+    }
+    .add-btn:active { background: var(--purple-light); }
+
+    /* ── SETTINGS ────────────────────────────────────────── */
+    .settings-card {
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-radius: var(--radius); overflow: hidden;
+      border: 0.5px solid var(--border2); margin-bottom: 16px;
+      box-shadow: var(--shadow-card);
+    }
+    .settings-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 0.5px solid var(--border); }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-lbl { flex: 1; }
+    .settings-lbl .name { font-size: 15px; color: var(--text); font-weight: 500; }
+    .settings-lbl .sub  { font-size: 12px; color: var(--text2); margin-top: 2px; }
+    .settings-input {
+      border: none; background: transparent;
+      font-size: 16px; font-weight: 700; color: var(--purple);
+      text-align: right; width: 120px; font-family: -apple-system, 'Helvetica Neue', sans-serif; outline: none;
+    }
+    .settings-input::placeholder { color: var(--text3); font-weight: 400; font-size: 14px; }
+    select.settings-input { cursor: pointer; }
+    .info-note {
+      background: linear-gradient(135deg, var(--blue-light), #e8f0ff);
+      border-radius: var(--radius-sm); padding: 13px 16px;
+      font-size: 13px; color: var(--blue-dark); line-height: 1.55;
+      margin-bottom: 16px; border: 0.5px solid rgba(91,155,213,0.2);
+    }
+
+    /* ── BOTTOM SHEET ────────────────────────────────────── */
+    .sheet-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(45,31,78,0.45);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      z-index: 500; align-items: flex-end;
+    }
+    .sheet-bg.open { display: flex; animation: fadeBg 0.25s ease both; }
+    @keyframes fadeBg { from { opacity: 0; } to { opacity: 1; } }
+    .sheet {
+      background: linear-gradient(160deg, #f8f0ff 0%, #fff0f8 60%, #f0f8ff 100%);
+      border-radius: 24px 24px 0 0; padding: 16px 20px calc(var(--safe-bot) + 28px);
+      width: 100%; max-height: 92vh; overflow-y: auto;
+      animation: slideUp 0.28s cubic-bezier(0.34,1.1,0.64,1) both;
+    }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .sheet-handle { width: 40px; height: 4px; background: var(--border2); border-radius: 2px; margin: 0 auto 18px; }
+    .sheet-title { font-family: Georgia, 'Times New Roman', serif; font-size: 22px; color: var(--text); margin-bottom: 20px; }
+    .field { margin-bottom: 14px; }
+    .field label { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 7px; }
+    .field input, .field select {
+      width: 100%; padding: 14px 16px;
+      border: 1.5px solid var(--border2); border-radius: var(--radius-sm);
+      font-size: 16px; background: rgba(255,255,255,0.8); color: var(--text);
+      font-family: -apple-system, 'Helvetica Neue', sans-serif; outline: none; -webkit-appearance: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--purple); }
+    .field-hint { font-size: 13px; font-weight: 600; color: var(--php); margin-top: 7px; min-height: 18px; }
+    .sheet-actions { display: flex; gap: 10px; margin-top: 22px; }
+    .btn-save {
+      flex: 1; padding: 16px;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: #fff; border: none; border-radius: var(--radius-sm);
+      font-size: 16px; font-weight: 700; cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      box-shadow: 0 4px 16px rgba(155,109,206,0.35);
+    }
+    .btn-save:active { opacity: 0.88; }
+    .btn-cancel {
+      padding: 16px 22px; background: rgba(255,255,255,0.7);
+      color: var(--text2); border: 1.5px solid var(--border2);
+      border-radius: var(--radius-sm); font-size: 16px; cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    }
+
+    /* ── LOCK BUTTON (in settings) ───────────────────────── */
+    .lock-now-btn {
+      width: 100%; padding: 15px; border-radius: var(--radius);
+      background: linear-gradient(135deg, var(--purple-light), var(--pink-light));
+      border: 1.5px solid rgba(155,109,206,0.25); font-size: 15px;
+      color: var(--purple-dark); cursor: pointer; font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      font-weight: 600; margin-bottom: 10px; box-shadow: var(--shadow-card);
+    }
+    .change-pin-btn {
+      width: 100%; padding: 15px; border-radius: var(--radius);
+      background: rgba(255,255,255,0.6); border: 1.5px solid var(--border2);
+      font-size: 15px; color: var(--text2); cursor: pointer;
+      font-family: -apple-system, 'Helvetica Neue', sans-serif; font-weight: 600; margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── LOCK SCREEN ──────────────────────────────────────────────── -->
+<div id="lock-screen">
+  <div class="lock-logo">💜</div>
+  <div class="lock-title">MON</div>
+  <div class="lock-sub" id="lock-sub">Enter your PIN</div>
+  <div class="lock-dots" id="lock-dots">
+    <div class="lock-dot" id="d0"></div>
+    <div class="lock-dot" id="d1"></div>
+    <div class="lock-dot" id="d2"></div>
+    <div class="lock-dot" id="d3"></div>
+  </div>
+  <div class="pin-pad">
+    <button class="pin-key" onclick="pinPress('1')">1</button>
+    <button class="pin-key" onclick="pinPress('2')">2<span class="sub-letters">ABC</span></button>
+    <button class="pin-key" onclick="pinPress('3')">3<span class="sub-letters">DEF</span></button>
+    <button class="pin-key" onclick="pinPress('4')">4<span class="sub-letters">GHI</span></button>
+    <button class="pin-key" onclick="pinPress('5')">5<span class="sub-letters">JKL</span></button>
+    <button class="pin-key" onclick="pinPress('6')">6<span class="sub-letters">MNO</span></button>
+    <button class="pin-key" onclick="pinPress('7')">7<span class="sub-letters">PQRS</span></button>
+    <button class="pin-key" onclick="pinPress('8')">8<span class="sub-letters">TUV</span></button>
+    <button class="pin-key" onclick="pinPress('9')">9<span class="sub-letters">WXYZ</span></button>
+    <button class="pin-key" style="visibility:hidden;"></button>
+    <button class="pin-key" onclick="pinPress('0')">0</button>
+    <button class="pin-key del-key" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="lock-error" id="lock-error"></div>
+  <div class="lock-set-hint" id="lock-hint"></div>
+</div>
+
+<!-- ── MAIN APP ─────────────────────────────────────────────────── -->
+<div id="app" style="display:none;">
+  <div id="header">
+    <div id="header-top">
+      <h1>MON</h1>
+      <span id="header-date"></span>
+    </div>
+    <div id="rate-badge"><span class="rate-dot"></span><span id="rate-text">EUR→PHP: fetching…</span></div>
+  </div>
+
+  <div id="nav">
+    <button class="nav-btn active" onclick="switchTab('overview')"><span class="nav-icon">🏠</span>Overview</button>
+    <button class="nav-btn" onclick="switchTab('history')"><span class="nav-icon">📋</span>History</button>
+    <button class="nav-btn" onclick="switchTab('payments')"><span class="nav-icon">📅</span>Bills</button>
+    <button class="nav-btn" onclick="switchTab('settings')"><span class="nav-icon">⚙️</span>Settings</button>
+  </div>
+
+  <div id="content">
+
+    <!-- OVERVIEW -->
+    <div id="tab-overview" class="tab active">
+      <div id="daily-banner"></div>
+      <div id="overdue-zone"></div>
+      <div class="grid2">
+        <div class="metric blue"><div class="metric-label">Balance now</div><div class="metric-val" id="m-balance">€0</div></div>
+        <div class="metric pink"><div class="metric-label">Next payday</div><div class="metric-val" id="m-payday">—</div></div>
+        <div class="metric purp"><div class="metric-label">Bills before payday</div><div class="metric-val" id="m-bills">€0</div></div>
+        <div class="metric white"><div class="metric-label">Safe to spend</div><div class="metric-val" id="m-safe">€0</div></div>
+      </div>
+      <div class="section-label">Log a transaction</div>
+      <div class="type-picker">
+        <button class="type-pill active-spend"  id="pill-spend"  onclick="setType('spend')">− Spend</button>
+        <button class="type-pill"               id="pill-income" onclick="setType('income')">+ Income</button>
+        <button class="type-pill"               id="pill-salary" onclick="setType('salary')">💰 Salary</button>
+      </div>
+      <div class="quick-bar">
+        <input id="q-desc" type="text" placeholder="Description…"/>
+        <div class="q-divider"></div>
+        <input id="q-amt" type="number" inputmode="decimal" placeholder="€0"/>
+        <button class="q-add-btn" onclick="logTransaction()">Add</button>
+      </div>
+      <div class="section-label">This pay cycle</div>
+      <div id="cycle-summary"></div>
+    </div>
+
+    <!-- HISTORY -->
+    <div id="tab-history" class="tab">
+      <div class="section-label">All transactions</div>
+      <div class="list-card" id="history-list"><div class="empty-row">No transactions yet</div></div>
+    </div>
+
+    <!-- BILLS -->
+    <div id="tab-payments" class="tab">
+      <div id="php-zone"></div>
+      <div class="section-label">Scheduled payments</div>
+      <div class="list-card" id="payments-list"><div class="empty-row">No payments added yet</div></div>
+      <button class="add-btn" onclick="openPaymentForm()">＋ Add scheduled payment</button>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="tab-settings" class="tab">
+      <div class="info-note">💡 Set your balance and payday below. Log salary on the Overview tab to add it to your balance automatically.</div>
+
+      <div class="section-label">My finances</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Current balance</div><div class="sub">Money you have right now (€)</div></div>
+          <input class="settings-input" id="set-balance" type="number" inputmode="decimal" placeholder="e.g. 800" oninput="save()"/>
+        </div>
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Expected monthly salary</div><div class="sub">Prefills when logging salary (€)</div></div>
+          <input class="settings-input" id="set-salary" type="number" inputmode="decimal" placeholder="e.g. 2500" oninput="save()"/>
+        </div>
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Monthly savings target</div><div class="sub">Reserved from balance each cycle (€)</div></div>
+          <input class="settings-input" id="set-savings-target" type="number" inputmode="decimal" placeholder="e.g. 300" oninput="save()"/>
+        </div>
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Pay day</div><div class="sub">Day salary arrives each month</div></div>
+          <select class="settings-input" id="set-payday" onchange="save()">
+            <option value="last">Last day</option>
+            <option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option>
+            <option value="4">4th</option><option value="5">5th</option><option value="6">6th</option>
+            <option value="7">7th</option><option value="8">8th</option><option value="9">9th</option>
+            <option value="10">10th</option><option value="11">11th</option><option value="12">12th</option>
+            <option value="13">13th</option><option value="14">14th</option><option value="15">15th</option>
+            <option value="16">16th</option><option value="17">17th</option><option value="18">18th</option>
+            <option value="19">19th</option><option value="20">20th</option><option value="21">21st</option>
+            <option value="22">22nd</option><option value="23">23rd</option><option value="24">24th</option>
+            <option value="25">25th</option><option value="26">26th</option><option value="27">27th</option>
+            <option value="28">28th</option><option value="29">29th</option><option value="30">30th</option>
+            <option value="31">31st</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-label">Security</div>
+      <button class="lock-now-btn" onclick="lockApp()">🔒 Lock app now</button>
+      <button class="change-pin-btn" onclick="startChangePin()">🔑 Change PIN</button>
+
+      <div class="section-label">TapTap Send · EUR → PHP</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Live estimated rate</div><div class="sub">Mid-market − ~0.7% TapTap margin</div></div>
+          <div style="font-size:16px;font-weight:700;color:var(--php-dark);" id="s-rate">…</div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-lbl"><div class="name">Last refreshed</div></div>
+          <div style="font-size:13px;color:var(--text2);" id="s-rate-time">—</div>
+        </div>
+      </div>
+
+      <div class="section-label">Data</div>
+      <div class="settings-card">
+        <div class="settings-row" style="cursor:pointer;" onclick="confirmReset()">
+          <div class="settings-lbl"><div class="name" style="color:var(--red-dark);">Reset all data</div><div class="sub">Clears balance, history and payments</div></div>
+          <div style="color:var(--text3);font-size:20px;">›</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- PAYMENT FORM SHEET -->
+<div class="sheet-bg" id="payment-sheet" onclick="closePaymentForm(event)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add scheduled payment</div>
+    <div class="field">
+      <label>Payment name</label>
+      <input id="f-name" type="text" placeholder="e.g. Rent, Remittance PH, Netflix…"/>
+    </div>
+    <div class="field">
+      <label>Currency</label>
+      <select id="f-currency" onchange="toggleFormCurrency()">
+        <option value="EUR">EUR — fixed euros (€)</option>
+        <option value="PHP">PHP — via TapTap Send (₱ recipient gets)</option>
+      </select>
+    </div>
+    <div class="field" id="field-eur">
+      <label>Amount (€)</label>
+      <input id="f-eur" type="number" inputmode="decimal" placeholder="0.00" oninput="previewEur()"/>
+      <div class="field-hint" id="hint-eur"></div>
+    </div>
+    <div class="field" id="field-php" style="display:none;">
+      <label>Amount recipient receives (₱)</label>
+      <input id="f-php" type="number" inputmode="decimal" placeholder="e.g. 19000" oninput="previewPhp()"/>
+      <div class="field-hint" id="hint-php"></div>
+    </div>
+    <div class="field">
+      <label>Day of month due</label>
+      <select id="f-day">
+        <option value="last">Last day of month</option>
+        <option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option>
+        <option value="4">4th</option><option value="5">5th</option><option value="6">6th</option>
+        <option value="7">7th</option><option value="8">8th</option><option value="9">9th</option>
+        <option value="10">10th</option><option value="11">11th</option><option value="12">12th</option>
+        <option value="13">13th</option><option value="14">14th</option><option value="15">15th</option>
+        <option value="16">16th</option><option value="17">17th</option><option value="18">18th</option>
+        <option value="19">19th</option><option value="20">20th</option><option value="21">21st</option>
+        <option value="22">22nd</option><option value="23">23rd</option><option value="24">24th</option>
+        <option value="25">25th</option><option value="26">26th</option><option value="27">27th</option>
+        <option value="28">28th</option><option value="29">29th</option><option value="30">30th</option>
+        <option value="31">31st</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Frequency</label>
+      <select id="f-freq">
+        <option value="monthly">Monthly</option>
+        <option value="weekly">Weekly (every 7 days)</option>
+        <option value="annual">Annual (once a year)</option>
+      </select>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closePaymentForm()">Cancel</button>
+      <button class="btn-save" onclick="submitPaymentForm()">Save payment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// PIN / LOCK
+// ═══════════════════════════════════════════════════
+const DEFAULT_PIN = '1234';
+let pinBuffer    = '';
+let pinMode      = 'unlock';   // 'unlock' | 'set-new' | 'confirm-new'
+let pendingNewPin = '';
+
+function getStoredPin() {
+  return localStorage.getItem('ft_pin') || DEFAULT_PIN;
+}
+
+function pinPress(digit) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += digit;
+  updateDots();
+  if (pinBuffer.length === 4) {
+    setTimeout(() => handlePinComplete(), 120);
+  }
+}
+
+function pinDel() {
+  if (pinBuffer.length > 0) {
+    pinBuffer = pinBuffer.slice(0, -1);
+    updateDots();
+  }
+}
+
+function updateDots(mode) {
+  for (let i = 0; i < 4; i++) {
+    const d = document.getElementById('d' + i);
+    d.className = 'lock-dot';
+    if (i < pinBuffer.length) d.classList.add('filled');
+    if (mode === 'error') d.classList.add('error');
+  }
+}
+
+function handlePinComplete() {
+  if (pinMode === 'unlock') {
+    if (pinBuffer === getStoredPin()) {
+      unlockApp();
+    } else {
+      pinError('Incorrect PIN. Try again.');
+    }
+  } else if (pinMode === 'set-new') {
+    pendingNewPin = pinBuffer;
+    pinBuffer = '';
+    updateDots();
+    document.getElementById('lock-sub').textContent = 'Confirm new PIN';
+    document.getElementById('lock-hint').textContent = '';
+    pinMode = 'confirm-new';
+  } else if (pinMode === 'confirm-new') {
+    if (pinBuffer === pendingNewPin) {
+      localStorage.setItem('ft_pin', pinBuffer);
+      pinBuffer = ''; pendingNewPin = '';
+      updateDots();
+      pinMode = 'unlock';
+      // Go back to app
+      document.getElementById('lock-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      alert('PIN changed successfully!');
+    } else {
+      pinError('PINs do not match. Try again.');
+      pinMode = 'set-new';
+    }
+  }
+}
+
+function pinError(msg) {
+  updateDots('error');
+  document.getElementById('lock-error').textContent = msg;
+  setTimeout(() => {
+    pinBuffer = '';
+    updateDots();
+    document.getElementById('lock-error').textContent = '';
+  }, 1200);
+}
+
+function unlockApp() {
+  pinBuffer = '';
+  updateDots();
+  document.getElementById('lock-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+function lockApp() {
+  pinMode = 'unlock';
+  pinBuffer = '';
+  updateDots();
+  document.getElementById('lock-sub').textContent = 'Enter your PIN';
+  document.getElementById('lock-hint').textContent = '';
+  document.getElementById('lock-error').textContent = '';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('lock-screen').style.display = 'flex';
+}
+
+function startChangePin() {
+  pinMode = 'set-new';
+  pinBuffer = '';
+  updateDots();
+  document.getElementById('lock-sub').textContent = 'Enter new PIN';
+  document.getElementById('lock-hint').textContent = 'Choose a 4-digit PIN you will remember';
+  document.getElementById('lock-error').textContent = '';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('lock-screen').style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
+const DEFAULTS = {
+  balance: 0, salary: 0, savingsTarget: 0,
+  payday: 'last', payments: [], transactions: []
+};
+let S = { ...DEFAULTS };
+try {
+  const raw = localStorage.getItem('fintrack_v5');
+  if (raw) S = { ...DEFAULTS, ...JSON.parse(raw) };
+} catch(e) {}
+
+let rate = null, rateTime = null;
+let logType = 'spend';
+
+function persist() {
+  try { localStorage.setItem('fintrack_v5', JSON.stringify(S)); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════
+// RATE
+// ═══════════════════════════════════════════════════
+async function fetchRate() {
+  try {
+    const res  = await fetch('https://api.frankfurter.app/latest?from=EUR&to=PHP');
+    const data = await res.json();
+    rate     = parseFloat((data.rates.PHP * 0.993).toFixed(4));
+    rateTime = new Date();
+    updateRateUI();
+    render();
+  } catch(e) {
+    if (!rate) rate = 63.5;
+    updateRateUI(true);
+    render();
+  }
+}
+
+function updateRateUI(offline) {
+  const txt = rate ? '₱' + rate.toFixed(2) + '/€' : '…';
+  const rt = document.getElementById('rate-text');
+  const sr = document.getElementById('s-rate');
+  const srt = document.getElementById('s-rate-time');
+  if (rt)  rt.textContent  = 'EUR→PHP: ' + txt + (offline ? ' (offline)' : '');
+  if (sr)  sr.textContent  = rate ? '1 EUR = ₱' + rate.toFixed(2) : '…';
+  if (srt) srt.textContent = offline ? 'offline estimate'
+    : (rateTime ? rateTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' today' : '—');
+}
+
+// ═══════════════════════════════════════════════════
+// PAYDAY HELPERS
+// ═══════════════════════════════════════════════════
+function lastDayOf(y, m) { return new Date(y, m + 1, 0).getDate(); }
+
+function resolveDay(setting, y, m) {
+  if (setting === 'last') return lastDayOf(y, m);
+  return Math.min(parseInt(setting), lastDayOf(y, m));
+}
+
+function getNextPayday() {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const y = now.getFullYear(), m = now.getMonth();
+  let d = new Date(y, m, resolveDay(S.payday, y, m));
+  if (d <= now) {
+    const nm = m + 1 > 11 ? 0 : m + 1, ny = m + 1 > 11 ? y + 1 : y;
+    d = new Date(ny, nm, resolveDay(S.payday, ny, nm));
+  }
+  return d;
+}
+
+function getDaysUntil(date) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  return Math.ceil((date - now) / 86400000);
+}
+
+function nextBillDate(p) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const y = now.getFullYear(), m = now.getMonth();
+  if (p.freq === 'weekly') {
+    let anchor = p.lastPaid ? new Date(p.lastPaid) : new Date(y, m, 1);
+    anchor.setHours(0,0,0,0);
+    let next = new Date(anchor);
+    while (next <= now) next.setDate(next.getDate() + 7);
+    return next;
+  }
+  if (p.freq === 'annual') {
+    let d = new Date(y, m, resolveDay(p.day, y, m));
+    if (d <= now) d = new Date(y + 1, m, resolveDay(p.day, y + 1, m));
+    return d;
+  }
+  let d = new Date(y, m, resolveDay(p.day, y, m)); d.setHours(0,0,0,0);
+  if (d <= now) {
+    const nm = m + 1 > 11 ? 0 : m + 1, ny = m + 1 > 11 ? y + 1 : y;
+    d = new Date(ny, nm, resolveDay(p.day, ny, nm));
+  }
+  return d;
+}
+
+function billsBeforePayday() {
+  const payday = getNextPayday();
+  const r = rate || 63.5;
+  let total = 0; const list = [];
+  S.payments.forEach(p => {
+    const bd = nextBillDate(p);
+    if (bd < payday) {
+      const eur = p.currency === 'PHP' ? p.amountPhp / r : p.amountEur;
+      total += eur;
+      list.push({ ...p, bd, daysTo: getDaysUntil(bd), eurCost: eur });
+    }
+  });
+  return { total, list };
+}
+
+function overduePayments() {
+  return S.payments.filter(p => getDaysUntil(nextBillDate(p)) <= 0);
+}
+
+// ═══════════════════════════════════════════════════
+// FORMAT
+// ═══════════════════════════════════════════════════
+function fmtE(n) {
+  return (n < 0 ? '−' : '') + '€' + Math.abs(n).toLocaleString('en-IE',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtP(n) { return '₱' + Math.round(Math.abs(n)).toLocaleString('en-PH'); }
+function fmtDate(d) { return new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'}); }
+function fmtShort(d) { return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
+
+// ═══════════════════════════════════════════════════
+// TAB
+// ═══════════════════════════════════════════════════
+function switchTab(t) {
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + t).classList.add('active');
+  ['overview','history','payments','settings'].forEach((n,i) => {
+    if (n === t) document.querySelectorAll('.nav-btn')[i].classList.add('active');
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// TRANSACTIONS
+// ═══════════════════════════════════════════════════
+function setType(t) {
+  logType = t;
+  ['spend','income','salary'].forEach(k => {
+    document.getElementById('pill-' + k).className = 'type-pill' + (k === t ? ' active-' + k : '');
+  });
+  const desc = document.getElementById('q-desc');
+  if (t === 'salary') {
+    desc.value = 'Monthly salary';
+    const a = document.getElementById('q-amt');
+    if (!a.value && S.salary) a.value = S.salary;
+  } else {
+    desc.value = '';
+    desc.placeholder = t === 'income' ? 'e.g. Bonus, freelance…' : 'Description…';
+  }
+}
+
+function logTransaction() {
+  const desc = document.getElementById('q-desc').value.trim() || (logType === 'salary' ? 'Monthly salary' : logType === 'income' ? 'Income' : 'Expense');
+  const amt  = parseFloat(document.getElementById('q-amt').value);
+  if (!amt || amt <= 0) { alert('Please enter an amount.'); return; }
+  const isIn = logType !== 'spend';
+  S.balance = parseFloat(((S.balance || 0) + (isIn ? amt : -amt)).toFixed(2));
+  S.transactions.push({ id: Date.now(), type: logType, desc, amt, date: new Date().toISOString() });
+  document.getElementById('q-desc').value = '';
+  document.getElementById('q-amt').value = '';
+  setType(logType);
+  const bi = document.getElementById('set-balance');
+  if (bi) bi.value = S.balance.toFixed(2);
+  persist(); render();
+}
+
+function deleteTransaction(id) {
+  const tx = S.transactions.find(t => t.id === id);
+  if (!tx) return;
+  const isIn = tx.type !== 'spend';
+  S.balance = parseFloat(((S.balance || 0) + (isIn ? -tx.amt : tx.amt)).toFixed(2));
+  S.transactions = S.transactions.filter(t => t.id !== id);
+  const bi = document.getElementById('set-balance');
+  if (bi) bi.value = S.balance.toFixed(2);
+  persist(); render();
+}
+
+function markPaid(paymentId) {
+  const p = S.payments.find(p => p.id === paymentId);
+  if (!p) return;
+  const r = rate || 63.5;
+  const eur = p.currency === 'PHP' ? p.amountPhp / r : p.amountEur;
+  S.balance = parseFloat(((S.balance || 0) - eur).toFixed(2));
+  S.transactions.push({ id: Date.now(), type: 'spend', desc: p.name + ' — bill paid', amt: eur, date: new Date().toISOString(), billId: paymentId });
+  p.lastPaid = new Date().toISOString();
+  const bi = document.getElementById('set-balance');
+  if (bi) bi.value = S.balance.toFixed(2);
+  persist(); render();
+}
+
+// ═══════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════
+function save() {
+  S.balance       = parseFloat(document.getElementById('set-balance').value)        || 0;
+  S.salary        = parseFloat(document.getElementById('set-salary').value)         || 0;
+  S.savingsTarget = parseFloat(document.getElementById('set-savings-target').value) || 0;
+  S.payday        = document.getElementById('set-payday').value;
+  persist(); render();
+}
+
+function confirmReset() {
+  if (confirm('Reset ALL data? This cannot be undone.')) {
+    S = { ...DEFAULTS };
+    persist();
+    ['set-balance','set-salary','set-savings-target'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('set-payday').value = 'last';
+    render();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// PAYMENT FORM
+// ═══════════════════════════════════════════════════
+function openPaymentForm() {
+  ['f-name','f-eur','f-php'].forEach(id => { document.getElementById(id).value = ''; });
+  ['hint-eur','hint-php'].forEach(id => { document.getElementById(id).textContent = ''; });
+  document.getElementById('f-currency').value = 'EUR';
+  document.getElementById('f-day').value = 'last';
+  document.getElementById('f-freq').value = 'monthly';
+  toggleFormCurrency();
+  document.getElementById('payment-sheet').classList.add('open');
+  setTimeout(() => document.getElementById('f-name').focus(), 150);
+}
+
+function closePaymentForm(e) {
+  if (!e || e.target === document.getElementById('payment-sheet'))
+    document.getElementById('payment-sheet').classList.remove('open');
+}
+
+function toggleFormCurrency() {
+  const isPhp = document.getElementById('f-currency').value === 'PHP';
+  document.getElementById('field-eur').style.display = isPhp ? 'none' : '';
+  document.getElementById('field-php').style.display = isPhp ? '' : 'none';
+}
+
+function previewEur() {
+  const eur = parseFloat(document.getElementById('f-eur').value);
+  const el = document.getElementById('hint-eur');
+  el.textContent = eur > 0 && rate ? 'Recipient gets ≈ ' + fmtP(eur * rate) + ' (TapTap est.)' : '';
+}
+
+function previewPhp() {
+  const php = parseFloat(document.getElementById('f-php').value);
+  const el = document.getElementById('hint-php');
+  const r = rate || 63.5;
+  el.textContent = php > 0 ? 'You send ≈ ' + fmtE(php / r) + ' · @ ₱' + r.toFixed(2) + '/€ today' : '';
+}
+
+function submitPaymentForm() {
+  const name = document.getElementById('f-name').value.trim();
+  const currency = document.getElementById('f-currency').value;
+  const day = document.getElementById('f-day').value;
+  const freq = document.getElementById('f-freq').value;
+  if (!name) { alert('Please enter a name.'); return; }
+  const r = rate || 63.5;
+  let amountEur, amountPhp = null;
+  if (currency === 'PHP') {
+    amountPhp = parseFloat(document.getElementById('f-php').value);
+    if (!amountPhp || amountPhp <= 0) { alert('Please enter the PHP amount.'); return; }
+    amountEur = amountPhp / r;
+  } else {
+    amountEur = parseFloat(document.getElementById('f-eur').value);
+    if (!amountEur || amountEur <= 0) { alert('Please enter the EUR amount.'); return; }
+  }
+  S.payments.push({ id: Date.now(), name, amountEur, amountPhp, currency, day, freq });
+  persist();
+  document.getElementById('payment-sheet').classList.remove('open');
+  render();
+}
+
+function deletePayment(id) {
+  if (!confirm('Remove this scheduled payment?')) return;
+  S.payments = S.payments.filter(p => p.id !== id);
+  persist(); render();
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════
+function render() {
+  const now     = new Date();
+  const r       = rate || 63.5;
+  const balance = S.balance || 0;
+  const { total: billsEur, list: billsList } = billsBeforePayday();
+  const savings  = S.savingsTarget || 0;
+  const reserved = billsEur + savings;
+  const safe     = balance - reserved;
+  const daysLeft = getDaysUntil(getNextPayday());
+  const payday   = getNextPayday();
+
+  document.getElementById('header-date').textContent =
+    now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+
+  // Metrics
+  const mBal = document.getElementById('m-balance');
+  mBal.textContent = fmtE(balance);
+  mBal.className   = 'metric-val' + (balance < 0 ? ' red' : '');
+  document.getElementById('m-payday').textContent = fmtShort(payday) + ` (${daysLeft}d)`;
+  document.getElementById('m-bills').textContent  = fmtE(billsEur);
+  const mSafe = document.getElementById('m-safe');
+  mSafe.textContent = fmtE(Math.max(0, safe));
+  mSafe.className   = 'metric-val' + (safe < 0 ? ' red' : safe < reserved * 0.25 && reserved > 0 ? ' warn' : ' green');
+
+  // Daily banner
+  const bz = document.getElementById('daily-banner');
+  const dateStr = now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+  let cls, msg, amount, sub;
+
+  if (balance <= 0) {
+    cls = 'bad'; msg = 'Your balance is empty. Avoid spending until payday.';
+    amount = '€0'; sub = `Payday in ${daysLeft} day${daysLeft!==1?'s':''}`;
+  } else if (reserved === 0) {
+    cls = 'ok'; msg = 'No bills or savings reserved before payday. Your full balance is available.';
+    amount = fmtE(balance); sub = `Payday in ${daysLeft} day${daysLeft!==1?'s':''}`;
+  } else if (safe <= 0) {
+    cls = 'bad';
+    msg = `Bills (${fmtE(billsEur)})${savings>0?' and savings target ('+fmtE(savings)+')':''} exceed your balance — you are ${fmtE(Math.abs(safe))} short. Do not spend until payday.`;
+    amount = '€0'; sub = `${fmtE(reserved)} reserved · payday in ${daysLeft}d`;
+  } else {
+    cls = safe < balance * 0.15 ? 'warn' : 'ok';
+    const parts = [];
+    if (billsEur > 0) parts.push(`${fmtE(billsEur)} in bills`);
+    if (savings > 0)  parts.push(`${fmtE(savings)} savings`);
+    msg = `To cover all ${parts.join(' and ')} scheduled before payday, you are only allowed to spend`;
+    amount = fmtE(safe);
+    sub = `${fmtE(reserved)} reserved · payday in ${daysLeft} day${daysLeft!==1?'s':''}`;
+  }
+
+  bz.innerHTML = `<div class="banner ${cls}">
+    <div class="banner-eyebrow">${dateStr}</div>
+    <div class="banner-msg">${msg}</div>
+    <div class="banner-amount">${amount}</div>
+    <div class="banner-sub">${sub}</div>
+  </div>`;
+
+  // Overdue
+  const oz = document.getElementById('overdue-zone');
+  const over = overduePayments();
+  oz.innerHTML = over.length ? `<div class="overdue-banner">
+    <div class="overdue-title">⚠️ Bills due today or overdue</div>
+    ${over.map(p => {
+      const eur = p.currency === 'PHP' ? p.amountPhp / r : p.amountEur;
+      return `<div class="overdue-row">
+        <span class="overdue-lbl">${p.name}${p.currency==='PHP'?' ('+fmtP(p.amountPhp)+')':''} — ${fmtE(eur)}</span>
+        <button class="overdue-mark" onclick="markPaid(${p.id})">Mark paid</button>
+      </div>`;
+    }).join('')}
+  </div>` : '';
+
+  // Cycle summary
+  const now2 = new Date();
+  const y2 = now2.getFullYear(), m2 = now2.getMonth();
+  const prevPD = new Date(y2, m2 - 1, resolveDay(S.payday, y2, m2 === 0 ? 11 : m2 - 1));
+  const cycleTx = S.transactions.filter(t => new Date(t.date) >= prevPD);
+  const cycleIn  = cycleTx.filter(t => t.type !== 'spend').reduce((a,t) => a+t.amt, 0);
+  const cycleOut = cycleTx.filter(t => t.type === 'spend').reduce((a,t) => a+t.amt, 0);
+  const cycleNet = cycleIn - cycleOut;
+  document.getElementById('cycle-summary').innerHTML = `<div class="summary-card">
+    <div class="summary-title">Pay cycle snapshot</div>
+    <div class="summary-row"><span class="summary-lbl">Income received</span><span class="summary-val green">+${fmtE(cycleIn)}</span></div>
+    <div class="summary-row"><span class="summary-lbl">Total spent</span><span class="summary-val red">−${fmtE(cycleOut)}</span></div>
+    <div class="summary-row"><span class="summary-lbl">Net this cycle</span><span class="summary-val ${cycleNet>=0?'green':'red'}">${cycleNet>=0?'+':''}${fmtE(cycleNet)}</span></div>
+    ${savings>0?`<div class="summary-row"><span class="summary-lbl">Savings reserved</span><span class="summary-val purp">${fmtE(savings)}</span></div>`:''}
+  </div>`;
+
+  // History
+  const hl = document.getElementById('history-list');
+  hl.innerHTML = S.transactions.length === 0
+    ? '<div class="empty-row">No transactions yet — log your salary or spends on Overview</div>'
+    : S.transactions.slice().reverse().map(tx => {
+        const isIn = tx.type !== 'spend';
+        const icon = tx.type === 'salary' ? '💰' : tx.type === 'income' ? '＋' : '−';
+        const iCls = tx.type === 'salary' ? 'icon-salary' : tx.type === 'income' ? 'icon-income' : 'icon-spend';
+        const aC   = isIn ? 'green' : 'red';
+        const sign = isIn ? '+' : '−';
+        return `<div class="list-row">
+          <div class="row-icon ${iCls}">${icon}</div>
+          <div class="row-info">
+            <div class="row-name">${tx.desc}</div>
+            <div class="row-sub">${fmtDate(tx.date)}</div>
+          </div>
+          <div class="row-amount ${aC}">${sign}${fmtE(tx.amt)}</div>
+          <button class="row-del" onclick="deleteTransaction(${tx.id})">×</button>
+        </div>`;
+      }).join('');
+
+  // PHP zone
+  const phpPays = S.payments.filter(p => p.currency === 'PHP');
+  document.getElementById('php-zone').innerHTML = phpPays.length && rate
+    ? phpPays.map(p => {
+        const eurNow = p.amountPhp / r;
+        const bd = nextBillDate(p);
+        return `<div class="php-card">
+          <div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div>
+          <div class="php-card-row"><span class="php-card-lbl">Recipient receives</span><span class="php-card-val">${fmtP(p.amountPhp)}</span></div>
+          <div class="php-card-row"><span class="php-card-lbl">Your cost today</span><span class="php-card-val">${fmtE(eurNow)}</span></div>
+          <div class="php-card-row"><span class="php-card-lbl">Rate (TapTap est.)</span><span class="php-card-val">₱${r.toFixed(2)}/€</span></div>
+          <div class="php-card-row"><span class="php-card-lbl">Due</span><span class="php-card-val">${fmtShort(bd)} · ${getDaysUntil(bd)}d away</span></div>
+        </div>`;
+      }).join('')
+    : '';
+
+  // Payments list
+  const pl = document.getElementById('payments-list');
+  if (!S.payments.length) {
+    pl.innerHTML = '<div class="empty-row">No payments added yet</div>';
+  } else {
+    const payd2 = getNextPayday();
+    pl.innerHTML = S.payments.map(p => {
+      const bd      = nextBillDate(p);
+      const dTo     = getDaysUntil(bd);
+      const bfPD    = bd < payd2;
+      const isPhp   = p.currency === 'PHP';
+      const eurCost = isPhp ? p.amountPhp / r : p.amountEur;
+      const iCls    = isPhp ? 'icon-php' : bfPD ? 'icon-bill' : 'icon-income';
+      const aCls    = dTo <= 0 ? 'red' : isPhp ? 'php' : bfPD ? 'warn' : 'purp';
+      const icon    = isPhp ? '🇵🇭' : dTo <= 0 ? '⚠️' : bfPD ? '📅' : '📋';
+      const tags    = [
+        isPhp  ? '<span class="tag tag-php">TapTap PHP</span>' : '',
+        bfPD && dTo > 0 ? '<span class="tag tag-warn">BEFORE PAYDAY</span>' : '',
+        dTo <= 0 ? '<span class="tag tag-red">DUE NOW</span>' : ''
+      ].join('');
+      return `<div class="list-row ${isPhp?'php-tint':''}">
+        <div class="row-icon ${iCls}">${icon}</div>
+        <div class="row-info">
+          <div class="row-name">${p.name}${tags}</div>
+          <div class="row-sub">Due ${fmtShort(bd)} · ${dTo>0?dTo+'d':'today'} · ${p.freq}${isPhp?' · '+fmtP(p.amountPhp):''}</div>
+        </div>
+        <div class="row-amount ${aCls}">${fmtE(eurCost)}</div>
+        <button class="row-del" onclick="deletePayment(${p.id})">×</button>
+      </div>`;
+    }).join('');
+  }
+}
+
+function resolveDay(setting, y, m) {
+  if (setting === 'last') return new Date(y, m + 1, 0).getDate();
+  return Math.min(parseInt(setting), new Date(y, m + 1, 0).getDate());
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  // Check if first time (no PIN set, show hint)
+  if (!localStorage.getItem('ft_pin')) {
+    document.getElementById('lock-hint').textContent = 'Default PIN is 1234 — change it in Settings';
+  }
+
+  // Restore settings
+  if (S.balance)       document.getElementById('set-balance').value        = S.balance;
+  if (S.salary)        document.getElementById('set-salary').value         = S.salary;
+  if (S.savingsTarget) document.getElementById('set-savings-target').value = S.savingsTarget;
+  document.getElementById('set-payday').value = S.payday || 'last';
+
+  fetchRate();
+  setInterval(fetchRate, 5 * 60 * 1000);
+  setInterval(render, 60 * 1000);
+  // render() called after first fetchRate completes
+});
+</script>
+</body>
+</html>
