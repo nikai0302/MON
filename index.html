@@ -510,27 +510,53 @@ async function fetchRate(){
   const secb=document.getElementById('s-ecb');
   const srtime=document.getElementById('s-rtime');
   if(rtext)rtext.textContent='EUR→PHP: fetching…';
-  try{
-    // Use frankfurter.dev v2 API
-    const res=await fetch('https://api.frankfurter.dev/v2/latest?base=EUR&symbols=PHP');
-    const data=await res.json();
-    ecbRate=data.rates.PHP;
-    // TapTap Send typically offers ~0.7% below mid-market on EUR→PHP
-    rate=parseFloat((ecbRate*0.993).toFixed(4));
-    rateTime=new Date();
-    const tstr=rateTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    if(rtext)rtext.textContent='TapTap: ₱'+rate.toFixed(2)+'/€';
-    if(srate)srate.textContent='1 EUR = ₱'+rate.toFixed(2);
-    if(secb)secb.textContent='ECB mid: ₱'+ecbRate.toFixed(4)+'/€';
-    if(srtime)srtime.textContent=tstr+' today · auto-refreshes every 5 min';
-    render();
-  }catch(e){
-    if(!rate)rate=63.5;
-    if(rtext)rtext.textContent='TapTap: ₱'+rate.toFixed(2)+'/€ (offline)';
-    if(srate)srate.textContent='≈ ₱'+rate.toFixed(2)+' (offline)';
-    if(srtime)srtime.textContent='Could not fetch — check connection';
-    render();
+
+  const apis=[
+    async()=>{
+      const r=await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json');
+      const d=await r.json();
+      const mid=d.eur.php;
+      if(!mid||mid<50)throw new Error('bad');
+      return{mid,source:'Live market rate'};
+    },
+    async()=>{
+      const r=await fetch('https://open.er-api.com/v6/latest/EUR');
+      const d=await r.json();
+      const mid=d.rates.PHP;
+      if(!mid||mid<50)throw new Error('bad');
+      return{mid,source:'Live market rate'};
+    },
+    async()=>{
+      const today=new Date().toISOString().slice(0,10);
+      const r=await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@'+today+'/v1/currencies/eur.json');
+      const d=await r.json();
+      const mid=d.eur.php;
+      if(!mid||mid<50)throw new Error('bad');
+      return{mid,source:'Live market rate'};
+    }
+  ];
+
+  let ok=false;
+  for(const fn of apis){
+    try{
+      const{mid,source}=await fn();
+      ecbRate=mid;
+      rate=parseFloat((mid*0.993).toFixed(2));
+      rateTime=new Date();
+      const ts=rateTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      if(rtext)rtext.textContent='TapTap est.: ₱'+rate.toFixed(2)+'/€';
+      if(srate)srate.textContent='1 EUR = ₱'+rate.toFixed(2);
+      if(secb)secb.textContent=source+': ₱'+mid.toFixed(4)+'/€';
+      if(srtime)srtime.textContent=ts+' · tap ↻ to refresh';
+      ok=true;break;
+    }catch(e){continue}
   }
+  if(!ok){
+    if(rtext)rtext.textContent='EUR→PHP: offline ⚠️';
+    if(srate)srate.textContent=rate?'₱'+rate.toFixed(2)+' (last known)':'No rate — check connection';
+    if(srtime)srtime.textContent='Could not connect — check internet';
+  }
+  render();
 }
 
 function showRateDetail(){ST('settings');setTimeout(()=>{document.getElementById('rate-settings-card').scrollIntoView({behavior:'smooth'})},100)}
