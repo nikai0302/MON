@@ -461,7 +461,7 @@ select.stinp{cursor:pointer}
       </div>
       <div class="qbar" id="qbar">
         <div class="qbar-row1">
-          <input id="q-desc" type="text" placeholder="Description…"/>
+          <input id="q-desc" type="text" placeholder="Description…" oninput="autoDetectFromDesc()"/>
           <div class="qdiv"></div>
           <select id="q-cat">
             <option value="">📦 Category</option>
@@ -586,7 +586,14 @@ select.stinp{cursor:pointer}
     <div class="fld" id="pf-eur-fld"><label>Amount (€)</label><input id="pf-eur" type="text" inputmode="decimal" placeholder="0,00" oninput="prevEur()"/><div class="fhint" id="pf-eur-hint"></div></div>
     <div class="fld" id="pf-php-fld" style="display:none"><label>Amount recipient receives (₱)</label><input id="pf-php" type="text" inputmode="decimal" placeholder="e.g. 19.000" oninput="prevPhp()"/><div class="fhint" id="pf-php-hint"></div></div>
     <div class="fld"><label>Due date</label><div id="pf-cal-wrap"></div><div id="pf-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:24px"></div><input id="pf-date-hidden" type="hidden"/></div>
-    <div class="fld"><label>Frequency</label><select id="pf-freq"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="annual">Annual</option><option value="once">One-time only</option></select></div>
+    <div class="fld"><label>Frequency</label><select id="pf-freq" onchange="toggleEndDate()"><option value="monthly">Monthly</option><option value="weekly">Weekly (every 7 days)</option><option value="annual">Annual</option><option value="once">One-time only</option></select></div>
+    <div class="fld" id="pf-enddate-fld" style="display:none">
+      <label>End date <span style="font-weight:400;color:var(--text2)">(optional — leave blank if ongoing)</span></label>
+      <div id="pf-end-cal-wrap"></div>
+      <div id="pf-end-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div>
+      <input id="pf-end-date-hidden" type="hidden"/>
+      <button onclick="clearEndDate()" style="background:none;border:none;color:var(--text2);font-size:12px;cursor:pointer;padding:4px 0;font-family:inherit">✕ Clear end date</button>
+    </div>
     <div class="sacts"><button class="bcancel" onclick="closePF()">Cancel</button><button class="bsave" onclick="submitPF()">Save</button></div>
   </div>
 </div>
@@ -668,6 +675,42 @@ function startChPin(){pmode='set-new';pb='';udots();document.getElementById('lsu
 
 // ══════════════ STATE ══════════════
 const CATS=['🍔 Food','🚗 Transport','🎉 Entertainment','🏥 Health','👕 Shopping','🏠 Home','📱 Subscriptions','✈️ Travel','📚 Education','💸 Other'];
+
+// Keyword → {icon, category} detection
+const NAME_MAP=[
+  // Food & drink
+  {k:/groceries|supermarket|lidl|aldi|albert|jumbo|carrefour|tesco|spar|deli|bakery|butcher|food|lunch|dinner|breakfast|coffee|cafe|starbucks|mcdonalds|burger|pizza|restaurant|takeaway|uber.?eat|deliveroo|doordash|just.?eat/i, icon:'🍔', cat:'🍔 Food'},
+  // Transport
+  {k:/fuel|petrol|gas station|parking|toll|bus|train|metro|taxi|uber|lyft|bolt|car|garage|mechanic|insurance.*(car|auto|vehicle)|auto.*insurance|vehicle|highway|motorway|ns |stib|de.?lijn|tec |ov.?chip/i, icon:'🚗', cat:'🚗 Transport'},
+  // Entertainment
+  {k:/netflix|spotify|hbo|disney|amazon.?prime|apple.?tv|youtube|cinema|movies?|theatre|concert|gaming|steam|playstation|xbox|nintendo|ticketmaster/i, icon:'🎉', cat:'🎉 Entertainment'},
+  // Health
+  {k:/pharmacy|apotheek|doctor|hospital|dentist|medical|health|gym|fitness|sport|vitamin|medicine|insurance.*(health|medical|zorg)|zorg.*insurance/i, icon:'🏥', cat:'🏥 Health'},
+  // Shopping
+  {k:/amazon|bol\.com|zalando|h&m|zara|primark|ikea|shopping|clothing|shoes|fashion|online.*shop|shop.*online/i, icon:'👕', cat:'👕 Shopping'},
+  // Home / rent / utilities
+  {k:/rent|huur|mortgage|hypotheek|water|electric|electricity|energie|energy|gas|internet|broadband|wifi|phone|mobile|telenet|proximus|vodafone|kpn|t.?mobile|utilities|home|house|apartment|flat/i, icon:'🏠', cat:'🏠 Home'},
+  // Subscriptions
+  {k:/subscription|abonnement|membership|icloud|dropbox|adobe|microsoft|office|google.*one|one.*drive|norton|antivirus|vpn|domain|hosting/i, icon:'📱', cat:'📱 Subscriptions'},
+  // Travel
+  {k:/flight|airline|ryanair|easyjet|brussels.*air|lufthansa|klm|hotel|airbnb|booking\.com|hostel|travel|holiday|vacation|passport|visa/i, icon:'✈️', cat:'✈️ Travel'},
+  // Education
+  {k:/school|university|college|course|udemy|coursera|tuition|education|study|learn|book|library/i, icon:'📚', cat:'📚 Education'},
+  // Philippines / remittance
+  {k:/remit|western.?union|moneygram|transfer|taptap|gcash|pagibig|sss|philhealth|manila|philippines|PH|family.*send|send.*family/i, icon:'🇵🇭', cat:'🏠 Home'},
+  // Income / salary
+  {k:/salary|salaris|payslip|wage|freelance|bonus|dividend|pension|benefit|allowance|income|revenue/i, icon:'💰', cat:'💸 Other'},
+  // Savings / vault
+  {k:/savings|vault|invest|deposit|piggy/i, icon:'🏦', cat:'💸 Other'},
+];
+
+function detectNameMeta(name){
+  if(!name)return{icon:'💸',cat:'💸 Other'};
+  for(const rule of NAME_MAP){
+    if(rule.k.test(name))return{icon:rule.icon,cat:rule.cat};
+  }
+  return{icon:'💸',cat:'💸 Other'};
+}
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
 const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true,forecast:true}};
@@ -720,6 +763,12 @@ function getNextPayday(){
   return d;
 }
 function daysUntil(date){const now=new Date();now.setHours(0,0,0,0);return Math.ceil((date-now)/86400000)}
+function isPaymentExpired(p){
+  if(!p.endDate)return false;
+  const end=new Date(p.endDate+'T00:00:00');end.setHours(0,0,0,0);
+  const now=new Date();now.setHours(0,0,0,0);
+  return end<now;
+}
 function nextBillDate(p){
   const now=new Date();now.setHours(0,0,0,0);
   if(p.freq==='once'){
@@ -755,10 +804,10 @@ function nextBillDate(p){
 }
 function billsBefore(){
   const pd=getNextPayday();const r2=rate||63.5;let total=0;const list=[];
-  S.payments.forEach(p=>{const bd=nextBillDate(p);if(bd<pd){const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur})}});
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{const bd=nextBillDate(p);if(bd<pd){const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur})}});
   return{total,list};
 }
-function overdueP(){return S.payments.filter(p=>daysUntil(nextBillDate(p))<=0)}
+function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&daysUntil(nextBillDate(p))<=0)}
 
 // ══════════════ STREAK ══════════════
 function updateStreak(date,underLimit){
@@ -887,6 +936,17 @@ function calDoneBtn(cid){
 }
 
 // ══════════════ LOG TRANSACTION ══════════════
+function autoDetectFromDesc(){
+  const desc=document.getElementById('q-desc').value;
+  const meta=detectNameMeta(desc);
+  // Update category dropdown if it hasn't been manually changed
+  const catEl=document.getElementById('q-cat');
+  if(catEl&&meta.cat!=='💸 Other'){
+    catEl.value=meta.cat;
+    // If not found in options, leave as is
+    if(catEl.value!==meta.cat)catEl.value='';
+  }
+}
 function stype(t){
   ltype=t;
   document.getElementById('pill-spend').className='tpill'+(t==='spend'?' as':'');
@@ -913,7 +973,9 @@ function stype(t){
 function logTx(){
   const desc=document.getElementById('q-desc').value.trim()||(ltype==='salary'?'Monthly salary':ltype==='income'?'Income':ltype==='vault'?'To savings vault':'Expense');
   const amt=parseCur(document.getElementById('q-amt').value);
-  const cat=document.getElementById('q-cat').value||'💸 Other';
+  const catSel=document.getElementById('q-cat').value;
+  const meta=detectNameMeta(desc);
+  const cat=catSel||meta.cat||'💸 Other';
   const dateVal=document.getElementById('q-date').value||todayStr();
   if(!amt||amt<=0){flashBar('err');showToast('Please enter an amount');return}
   const isIn=ltype==='income'||ltype==='salary';
@@ -1406,11 +1468,43 @@ function openPF(eid){
   ['pf-name','pf-eur','pf-php'].forEach(id=>{document.getElementById(id).value=''});
   ['pf-eur-hint','pf-php-hint','pf-date-display'].forEach(id=>{document.getElementById(id).textContent=''});
   document.getElementById('pf-cur').value='EUR';document.getElementById('pf-freq').value='monthly';document.getElementById('pf-date-hidden').value='';
-  if(eid){const p=S.payments.find(x=>x.id===eid);if(p){document.getElementById('pf-name').value=p.name;document.getElementById('pf-cur').value=p.currency;if(p.currency==='PHP')document.getElementById('pf-php').value=Math.round(p.amountPhp).toString();else document.getElementById('pf-eur').value=p.amountEur.toFixed(2).replace('.',',');document.getElementById('pf-freq').value=p.freq;if(p.dueDate){document.getElementById('pf-date-hidden').value=p.dueDate;document.getElementById('pf-date-display').textContent=fmtDate(p.dueDate)}}}
-  togglePFC();buildCal('pf-cal-wrap','pf-date-hidden','pf-date-display',document.getElementById('pf-date-hidden').value||null);
+  document.getElementById('pf-end-date-hidden').value='';document.getElementById('pf-end-date-display').textContent='';
+  if(eid){const p=S.payments.find(x=>x.id===eid);if(p){
+    document.getElementById('pf-name').value=p.name;
+    document.getElementById('pf-cur').value=p.currency;
+    if(p.currency==='PHP')document.getElementById('pf-php').value=Math.round(p.amountPhp).toString();
+    else document.getElementById('pf-eur').value=p.amountEur.toFixed(2).replace('.',',');
+    document.getElementById('pf-freq').value=p.freq;
+    if(p.dueDate){document.getElementById('pf-date-hidden').value=p.dueDate;document.getElementById('pf-date-display').textContent=fmtDate(p.dueDate);}
+    if(p.endDate){document.getElementById('pf-end-date-hidden').value=p.endDate;document.getElementById('pf-end-date-display').textContent='✓ '+fmtDate(p.endDate);document.getElementById('pf-end-date-display').style.color='var(--green-d)';}
+    else{document.getElementById('pf-end-date-display').textContent='No end date — ongoing';document.getElementById('pf-end-date-display').style.color='var(--text2)';}
+  }}
+  togglePFC();toggleEndDate();
+  buildCal('pf-cal-wrap','pf-date-hidden','pf-date-display',document.getElementById('pf-date-hidden').value||null);
+  if(document.getElementById('pf-freq').value!=='once'){
+    buildCal('pf-end-cal-wrap','pf-end-date-hidden','pf-end-date-display',document.getElementById('pf-end-date-hidden').value||null);
+  }
   document.getElementById('pf-sheet').classList.add('open');setTimeout(()=>document.getElementById('pf-name').focus(),150);
 }
 function closePF(e){if(!e||e.target===document.getElementById('pf-sheet'))document.getElementById('pf-sheet').classList.remove('open')}
+function toggleEndDate(){
+  const freq=document.getElementById('pf-freq').value;
+  const fld=document.getElementById('pf-enddate-fld');
+  // Show end date for recurring bills only (not one-time)
+  if(fld)fld.style.display=freq==='once'?'none':'';
+  if(freq!=='once'&&!calState['pf-end-cal-wrap']){
+    buildCal('pf-end-cal-wrap','pf-end-date-hidden','pf-end-date-display',null);
+  }
+}
+function clearEndDate(){
+  document.getElementById('pf-end-date-hidden').value='';
+  document.getElementById('pf-end-date-display').textContent='No end date — ongoing';
+  document.getElementById('pf-end-date-display').style.color='var(--text2)';
+  if(calState['pf-end-cal-wrap']){
+    calState['pf-end-cal-wrap'].selected=null;
+    renderCal('pf-end-cal-wrap');
+  }
+}
 function togglePFC(){const isP=document.getElementById('pf-cur').value==='PHP';document.getElementById('pf-eur-fld').style.display=isP?'none':'';document.getElementById('pf-php-fld').style.display=isP?'':'none'}
 function prevEur(){const e=parseCur(document.getElementById('pf-eur').value);document.getElementById('pf-eur-hint').textContent=e>0&&rate?'Recipient gets ≈ '+fmtP(e*rate)+' (TapTap est.)':''}
 function prevPhp(){const p=parseCur(document.getElementById('pf-php').value);const r2=rate||63.5;document.getElementById('pf-php-hint').textContent=p>0?'You send ≈ '+fmtE(p/r2)+' · @ ₱'+r2.toFixed(2)+'/€ today':''}
@@ -1420,8 +1514,9 @@ function submitPF(){
   const r2=rate||63.5;let amountEur,amountPhp=null;
   if(cur==='PHP'){amountPhp=parseCur(document.getElementById('pf-php').value);if(!amountPhp||amountPhp<=0){alert('Please enter the PHP amount.');return}amountEur=amountPhp/r2}
   else{amountEur=parseCur(document.getElementById('pf-eur').value);if(!amountEur||amountEur<=0){alert('Please enter the EUR amount.');return}}
-  if(pfEditId){const p=S.payments.find(x=>x.id===pfEditId);if(p){p.name=name;p.amountEur=amountEur;p.amountPhp=amountPhp;p.currency=cur;p.dueDate=dueDate;p.freq=freq}}
-  else{S.payments.push({id:Date.now(),name,amountEur,amountPhp,currency:cur,dueDate,freq})}
+  const endDate=document.getElementById('pf-end-date-hidden').value||null;
+  if(pfEditId){const p=S.payments.find(x=>x.id===pfEditId);if(p){p.name=name;p.amountEur=amountEur;p.amountPhp=amountPhp;p.currency=cur;p.dueDate=dueDate;p.freq=freq;p.endDate=endDate;p.icon=detectNameMeta(name).icon;}}
+  else{S.payments.push({id:Date.now(),name,amountEur,amountPhp,currency:cur,dueDate,freq,endDate,icon:detectNameMeta(name).icon})}
   persist();document.getElementById('pf-sheet').classList.remove('open');render();showToast('📅 Payment saved');
 }
 function delPayment(id){if(!confirm('Remove this payment?'))return;S.payments=S.payments.filter(p=>p.id!==id);persist();render()}
@@ -1491,7 +1586,11 @@ function renderInsights(){
   const thirtyAgo=new Date(now.getTime()-30*86400000);
   const recentTx=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=thirtyAgo);
   const totalSpend=recentTx.reduce((a,t)=>a+t.amt,0);
-  const catMap={};recentTx.forEach(t=>{const c=t.cat||'💸 Other';catMap[c]=(catMap[c]||0)+t.amt});
+  const catMap={};recentTx.forEach(t=>{
+    // If no category set, auto-detect from name
+    const c=t.cat&&t.cat!=='💸 Other'?t.cat:detectNameMeta(t.desc).cat;
+    catMap[c]=(catMap[c]||0)+t.amt;
+  });
   const catSorted=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
   const catColors=['var(--purple)','var(--pink)','var(--blue)','var(--green)','var(--warn)','var(--red)','var(--php)','var(--gold)','var(--green-d)','var(--blue-d)'];
   const cz=document.getElementById('cat-zone');
@@ -1679,7 +1778,7 @@ function render(){
   const hl=document.getElementById('hist-list');
   hl.innerHTML=!S.transactions.length?'<div class="empty-r">No transactions yet</div>':S.transactions.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
     const isIn=tx.type==='income'||tx.type==='salary';const isVault=tx.type==='vault';
-    const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'＋':'−';
+    const detMeta=detectNameMeta(tx.desc);const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'💰':tx.type==='spend'?detMeta.icon:'＋';
     const iCls=tx.type==='salary'?'i-sal':isVault?'i-vlt':isIn?'i-inc':'i-spd';
     const aC=isVault?'gold':isIn?'green':'red';const sign=isIn?'+':isVault?'→':'−';
     return`<div class="lrow"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${tx.desc}</div><div class="rsub">${fmtDate(tx.date)}${tx.cat&&tx.cat!=='💸 Other'?' · '+tx.cat:''}</div></div><div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div><button class="redit" onclick="openETX(${tx.id})">edit</button><button class="rdel" onclick="deleteTx(${tx.id})">×</button></div>`;
@@ -1713,8 +1812,10 @@ function render(){
   // Payments list
   const pl=document.getElementById('pay-list');const pd2=getNextPayday();
   if(!S.payments.length){pl.innerHTML='<div class="empty-r">No payments added yet</div>'}
-  else{pl.innerHTML=S.payments.map(p=>{const bd=nextBillDate(p);const dt=daysUntil(bd);const bfPD=bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=dt<=0?'red':isP?'php':bfPD?'warn':'';const ic=isP?'🇵🇭':dt<=0?'⚠️':bfPD?'📅':'📋';const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt<=0?'<span class="tag tr">DUE NOW</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
-return`<div class="lrow ${isP?'php-t':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${editBtn}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
+  else{pl.innerHTML=S.payments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
+const subLine=expired?`Ended ${p.endDate?fmtShort(p.endDate):''} · ${p.freq}`:(bd?`Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}${p.endDate?' · ends '+fmtShort(p.endDate):''}`:p.freq);
+const showEdit=!expired;
+return`<div class="lrow ${isP&&!expired?'php-t':''}" style="${expired?'opacity:.55':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">${subLine}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${showEdit?editBtn:''}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
 }
 
 // ══════════════ GOALS HOME ZONE ══════════════
