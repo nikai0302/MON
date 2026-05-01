@@ -289,10 +289,10 @@ select.stinp{cursor:pointer}
 .phpc-lbl{font-size:13px;color:var(--php)}.phpc-val{font-size:14px;font-weight:700;color:var(--php-d)}
 
 /* ══ SHEET ══ */
-.sbg{display:none;position:fixed;inset:0;background:rgba(45,31,78,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;align-items:flex-end;padding:0 0 0 0}
+.sbg{display:none;position:fixed;inset:0;background:rgba(45,31,78,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;align-items:flex-end;padding:calc(var(--st)+60px) 0 0 0}
 .sbg.open{display:flex;animation:fbg .25s ease both}
 @keyframes fbg{from{opacity:0}to{opacity:1}}
-.sht{background:linear-gradient(160deg,#f8f0ff 0%,#fff0f8 60%,#f0f8ff 100%);border-radius:22px 22px 0 0;padding:32px 32px calc(var(--sb)+48px);width:100%;max-height:92vh;overflow-y:auto;animation:su .28s cubic-bezier(.34,1.1,.64,1) both}
+.sht{background:linear-gradient(160deg,#f8f0ff 0%,#fff0f8 60%,#f0f8ff 100%);border-radius:22px 22px 0 0;padding:28px 32px calc(var(--sb)+48px);width:100%;max-height:calc(100vh - var(--st) - 60px);overflow-y:auto;animation:su .28s cubic-bezier(.34,1.1,.64,1) both}
 @keyframes su{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sh-hdl{width:44px;height:5px;background:var(--border2);border-radius:3px;margin:0 auto 24px}
 .sh-title{font-size:20px;font-weight:800;color:var(--text);margin-bottom:24px}
