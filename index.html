@@ -831,8 +831,139 @@ async function fetchRate(){
     async()=>{const r=await fetch('https://open.er-api.com/v6/latest/EUR');const d=await r.json();const mid=d.rates.PHP;if(!mid||mid<50)throw 0;return mid},
     async()=>{const today=todayStr();const r=await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@'+today+'/v1/currencies/eur.json');const d=await r.json();const mid=d.eur.php;if(!mid||mid<50)throw 0;return mid}
   ];
-  for(const fn of apis){try{const mid=await fn();ecbRate=mid;rate=parseFloat((mid*0.993).toFixed(2));rateTime=new Date();updateRateUI();render();return}catch(e){}}
+  for(const fn of apis){try{const mid=await fn();ecbRate=mid;rate=parseFloat((mid*0.993).toFixed(2));rateTime=new Date();trackRate(mid);updateRateUI();render();fetchRateHistoryAndAdvise();return}catch(e){}}
   updateRateUI(true);render();
+}
+
+function trackRate(mid){
+  // Store last 7 rate readings with timestamps
+  let history=[];
+  try{history=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');}catch(e){}
+  history.push({r:mid,t:Date.now()});
+  // Keep only last 14 readings
+  if(history.length>14)history=history.slice(-14);
+  localStorage.setItem('mon_rate_history',JSON.stringify(history));
+}
+
+// Cache for AI advice to avoid re-fetching every render
+let _rateAdviceCache={text:'',ts:0,trend:'neutral'};
+
+async function fetchRateHistoryAndAdvise(){
+  if(!rate)return;
+  // Only refresh advice every 30 minutes
+  if(Date.now()-_rateAdviceCache.ts < 30*60*1000 && _rateAdviceCache.text)return;
+
+  const phpZone=document.getElementById('php-zone');
+  const phpPays=S.payments.filter(p=>p.currency==='PHP');
+  if(!phpPays.length)return;
+
+  // ── Step 1: Fetch 30-day EUR/PHP historical data ──
+  let historicalRates=[];
+  try{
+    // Use frankfurter.app — free, no key, reliable ECB data
+    const end=new Date();
+    const start=new Date(end.getTime()-30*24*3600*1000);
+    const fmt=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const url=`https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?from=EUR&to=PHP`;
+    const resp=await fetch(url);
+    const data=await resp.json();
+    if(data.rates){
+      historicalRates=Object.entries(data.rates)
+        .sort((a,b)=>a[0].localeCompare(b[0]))
+        .map(([date,r])=>({date,rate:r.PHP}));
+    }
+  }catch(e){console.log('Historical rate fetch failed',e);}
+
+  // ── Step 2: Get locally stored readings ──
+  let localHistory=[];
+  try{localHistory=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');}catch(e){}
+
+  // ── Step 3: Build summary for AI ──
+  const r30=historicalRates.slice(-30);
+  const r7=historicalRates.slice(-7);
+  const avg30=r30.length?r30.reduce((a,h)=>a+h.rate,0)/r30.length:null;
+  const avg7=r7.length?r7.reduce((a,h)=>a+h.rate,0)/r7.length:null;
+  const oldest30=r30.length?r30[0].rate:null;
+  const newest=historicalRates.length?historicalRates[historicalRates.length-1].rate:null;
+
+  // Quick local trend first (shows instantly)
+  let quickTrend='neutral',quickAdv='';
+  if(avg7&&avg30){
+    const diff7vs30=(avg7-avg30)/avg30*100;
+    if(diff7vs30>=0.3){quickTrend='up';quickAdv='📈 Rate trending UP vs 30-day average (+'+diff7vs30.toFixed(1)+'%)';}
+    else if(diff7vs30<=-0.3){quickTrend='down';quickAdv='📉 Rate trending DOWN vs 30-day average ('+diff7vs30.toFixed(1)+'%)';}
+    else{quickTrend='stable';quickAdv='➡️ Rate stable vs 30-day average';}
+  }
+
+  // ── Step 4: Ask Claude for smart advice ──
+  try{
+    const histSummary=r30.slice(-10).map(h=>`${h.date}: ₱${h.rate.toFixed(2)}`).join(', ');
+    const prompt=`EUR/PHP exchange rate data:
+- Current TapTap estimated rate: ₱${rate.toFixed(2)}/€
+- ECB market rate today: ₱${ecbRate?ecbRate.toFixed(2):'N/A'}/€
+- Last 10 days (Frankfurter/ECB): ${histSummary}
+- 7-day avg: ₱${avg7?avg7.toFixed(2):'N/A'} | 30-day avg: ₱${avg30?avg30.toFixed(2):'N/A'}
+- Local app readings (last 5): ${localHistory.slice(-5).map(h=>'₱'+h.r.toFixed(2)).join(', ')||'none yet'}
+
+The user sends money to Philippines via TapTap Send. In 2 sentences max: should they transfer today or wait? State clearly if rate is good/bad vs recent trend. Be specific with numbers.`;
+
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:120,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    const data=await resp.json();
+    const text=data.content?.[0]?.text||'';
+    if(text){
+      _rateAdviceCache={
+        text,
+        ts:Date.now(),
+        trend:quickTrend,
+        avg7,avg30,
+        histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · ')
+      };
+      // Re-render the php zone with new advice
+      render();
+    }
+  }catch(e){
+    // Fallback to local trend only
+    _rateAdviceCache={text:quickAdv,ts:Date.now(),trend:quickTrend,avg7,avg30};
+    render();
+  }
+}
+
+function getRateTrend(){
+  // Returns cached advice (fetched async separately)
+  if(!rate)return null;
+  const c=_rateAdviceCache;
+  // While waiting for AI, show local history trend
+  let localFallback='Fetching rate trend…';
+  let localTrend='neutral';
+  let avg7=c.avg7||null;
+  let avg30=c.avg30||null;
+  try{
+    const h=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');
+    if(h.length>=4){
+      const last4=h.slice(-4);const first2=h.slice(0,Math.min(4,h.length));
+      const recentAvg=last4.reduce((a,x)=>a+x.r,0)/last4.length;
+      const oldAvg=h.slice(0,Math.floor(h.length/2)).reduce((a,x)=>a+x.r,0)/Math.floor(h.length/2)||recentAvg;
+      const pct=(recentAvg-oldAvg)/oldAvg*100;
+      if(pct>=0.3){localTrend='up';localFallback='Rate trending up vs recent readings.';}
+      else if(pct<=-0.3){localTrend='down';localFallback='Rate trending down vs recent readings.';}
+      else{localTrend='stable';localFallback='Rate stable vs recent readings.';}
+    }
+  }catch(e){}
+  return{
+    advice:c.text||localFallback,
+    trend:c.trend||localTrend,
+    avg7,avg30,
+    histSummary:c.histSummary||null,
+    current:rate
+  };
 }
 function updateRateUI(offline){
   const ts=rateTime?rateTime.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' today':'—';
@@ -2258,16 +2389,16 @@ function render(){
     cls='bad';msg='Balance empty — avoid spending until payday.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(safe<=0){
-    cls='bad';msg='Bills and savings target exceed your balance.';amt='€0';
+    cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
-    cls='warn';msg='You have reached your spending limit for today.';amt='€0';
-    sub='Daily limit '+fmtE(dailyLimit)+' · '+fmtE(safe)+' left until payday in '+dl+'d';
+    cls='warn';msg='Daily limit reached.';amt='€0';
+    sub='Monthly pool '+fmtE(totalCycleBudget)+' · payday in '+dl+'d';
   } else {
     cls=remainingToday<20?'warn':'ok';
-    msg='You are allowed to spend';
+    msg='You are allowed to spend today';
     amt=fmtE(remainingToday);
-    sub='remaining today · daily limit '+fmtE(dailyLimit)+' · payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Monthly pool '+fmtE(totalCycleBudget)+' ('+fmtE(cycleSpend)+' used) · payday in '+dl+' day'+(dl!==1?'s':'');
   }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
@@ -2312,7 +2443,30 @@ function render(){
 
   // PHP zone
   const phpPays=S.payments.filter(p=>p.currency==='PHP');
-  document.getElementById('php-zone').innerHTML=phpPays.length&&rate?phpPays.map(p=>{const en=p.amountPhp/r2;const bd=nextBillDate(p);return`<div class="php-card"><div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div><div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div><div class="phpc-row"><span class="phpc-lbl">Your cost today</span><span class="phpc-val">${fmtE(en)}</span></div><div class="phpc-row"><span class="phpc-lbl">Rate (TapTap est.)</span><span class="phpc-val">₱${r2.toFixed(2)}/€</span></div><div class="phpc-row"><span class="phpc-lbl">Due</span><span class="phpc-val">${fmtShort(bd)} · ${daysUntil(bd)}d</span></div></div>`}).join(''):'';
+  const rateTrend=getRateTrend();
+  const trendIcon=rateTrend?.trend==='up'?'📈':rateTrend?.trend==='down'?'📉':'➡️';
+  const trendColor=rateTrend?.trend==='up'?'var(--green-d)':rateTrend?.trend==='down'?'var(--red-d)':'var(--php-d)';
+  const trendBg=rateTrend?.trend==='up'?'var(--green-l)':rateTrend?.trend==='down'?'var(--red-l)':'var(--php-l)';
+  document.getElementById('php-zone').innerHTML=phpPays.length&&rate?(
+    // Rate advice banner
+    (rateTrend?`<div style="background:${trendBg};border-radius:var(--r);padding:14px 18px;margin-bottom:10px;border:.5px solid rgba(124,92,191,.2)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+        <span style="font-size:18px">${trendIcon}</span>
+        <span style="font-size:12px;font-weight:700;color:${trendColor};text-transform:uppercase;letter-spacing:.04em">TapTap rate advice</span>
+      </div>
+      <div style="font-size:13px;color:${trendColor};font-weight:600;line-height:1.5">${rateTrend.advice}</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Current: ₱${rate.toFixed(2)}/€${rateTrend.avg7?` · 7d avg ₱${rateTrend.avg7.toFixed(2)}`:''} ${rateTrend.avg30?`· 30d avg ₱${rateTrend.avg30.toFixed(2)}`:''}</div>
+      ${rateTrend.histSummary?`<div style="font-size:10px;color:var(--text2);margin-top:3px;opacity:.7">${rateTrend.histSummary}</div>`:''}
+    </div>`:'')
+    +phpPays.map(p=>{const en=p.amountPhp/r2;const bd=nextBillDate(p);const daysLeft=daysUntil(bd);
+    return`<div class="php-card"><div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div>
+    <div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div>
+    <div class="phpc-row"><span class="phpc-lbl">Your cost today</span><span class="phpc-val">${fmtE(en)}</span></div>
+    <div class="phpc-row"><span class="phpc-lbl">Rate (TapTap est.)</span><span class="phpc-val">₱${r2.toFixed(2)}/€</span></div>
+    <div class="phpc-row"><span class="phpc-lbl">Due</span><span class="phpc-val">${fmtShort(bd)} · ${daysLeft}d</span></div>
+    ${daysLeft<=3?`<div style="background:var(--warn-l);border-radius:var(--rx);padding:8px 10px;margin-top:8px;font-size:12px;font-weight:600;color:var(--warn-d)">⚠️ Due in ${daysLeft===0?'today':daysLeft+'d'} — transfer soon!</div>`:''}
+    </div>`;}).join('')
+  ):'';
   // Payments list
   const pl=document.getElementById('pay-list');const pd2=getNextPayday();
   if(!S.payments.length){pl.innerHTML='<div class="empty-r">No payments added yet</div>'}
