@@ -47,7 +47,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* ══ APP SHELL ══ */
 #app{display:flex;flex-direction:column;height:100%;max-width:430px;margin:0 auto;background:linear-gradient(160deg,#f0e8f8 0%,#fce4f0 55%,#e8f0fd 100%);position:relative}
-#hdr{background:rgba(255,255,255,.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:.5px solid var(--border2);padding:calc(var(--st)+8px) 28px 18px;flex-shrink:0}
+#hdr{background:rgba(255,255,255,.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:.5px solid var(--border2);padding:calc(env(safe-area-inset-top,62px) + 12px) 28px 18px;flex-shrink:0}
 #hdr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 #hdr-top h1{font-size:24px;font-weight:800;color:var(--text)}
 #hdr-date{font-size:12px;color:var(--text2)}
@@ -58,7 +58,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .nb{flex:1;padding:10px 6px 10px;font-size:10px;font-weight:700;color:var(--text3);background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;font-family:inherit;letter-spacing:.02em;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s}
 .nb .ni{font-size:20px}
 .nb.active{color:var(--purple);border-bottom-color:var(--purple)}
-#cnt{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--sb)+32px)}
+#cnt{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(env(safe-area-inset-bottom,34px)+32px)}
 .tab{display:none;padding:20px 22px;animation:fu .2s ease both}
 .tab.active{display:block}
 @keyframes fu{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -289,10 +289,10 @@ select.stinp{cursor:pointer}
 .phpc-lbl{font-size:13px;color:var(--php)}.phpc-val{font-size:14px;font-weight:700;color:var(--php-d)}
 
 /* ══ SHEET ══ */
-.sbg{display:none;position:fixed;inset:0;background:rgba(45,31,78,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;align-items:flex-end;padding:calc(var(--st)+60px) 0 0 0}
+.sbg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(45,31,78,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:500;align-items:flex-end}
 .sbg.open{display:flex;animation:fbg .25s ease both}
 @keyframes fbg{from{opacity:0}to{opacity:1}}
-.sht{background:linear-gradient(160deg,#f8f0ff 0%,#fff0f8 60%,#f0f8ff 100%);border-radius:22px 22px 0 0;padding:28px 32px calc(var(--sb)+48px);width:100%;max-height:calc(100vh - var(--st) - 60px);overflow-y:auto;animation:su .28s cubic-bezier(.34,1.1,.64,1) both}
+.sht{background:linear-gradient(160deg,#f8f0ff 0%,#fff0f8 60%,#f0f8ff 100%);border-radius:22px 22px 0 0;padding:28px 32px calc(env(safe-area-inset-bottom,34px)+48px);width:100%;max-height:calc(100svh - env(safe-area-inset-top,62px) - 80px);overflow-y:auto;animation:su .28s cubic-bezier(.34,1.1,.64,1) both}
 @keyframes su{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sh-hdl{width:44px;height:5px;background:var(--border2);border-radius:3px;margin:0 auto 24px}
 .sh-title{font-size:20px;font-weight:800;color:var(--text);margin-bottom:24px}
@@ -1091,6 +1091,27 @@ function render(){
 }
 
 // ══════════════ INIT ══════════════
+// ══════════════ SHEET SWIPE DOWN TO CLOSE ══════════════
+function addSwipeDownToClose(sheetId, closeFn){
+  const sheet = document.getElementById(sheetId);
+  if(!sheet) return;
+  const inner = sheet.querySelector('.sht');
+  if(!inner) return;
+  let startY=0, startScrollTop=0;
+  inner.addEventListener('touchstart',(e)=>{
+    startY = e.touches[0].clientY;
+    startScrollTop = inner.scrollTop;
+  },{passive:true});
+  inner.addEventListener('touchend',(e)=>{
+    const dy = e.changedTouches[0].clientY - startY;
+    const dt = Date.now();
+    // Only close if: swiped DOWN 80px+, AND sheet is scrolled to top already
+    if(dy > 80 && startScrollTop <= 0){
+      closeFn();
+    }
+  },{passive:true});
+}
+
 // ══════════════ SWIPE NAVIGATION ══════════════
 const TABS=['overview','history','payments','goals','insights','settings'];
 function setupSwipe(){
@@ -1133,6 +1154,9 @@ window.addEventListener('load',()=>{
   setInterval(fetchRate,5*60*1000);
   setInterval(render,60*1000);
   setupSwipe();
+  addSwipeDownToClose('pf-sheet', closePF);
+  addSwipeDownToClose('gf-sheet', closeGF);
+  addSwipeDownToClose('etx-sheet', closeETX);
   // Push initial state so back button lands on overview, not previous page
   history.replaceState({tab:'overview'},'',window.location.pathname+'#overview');
 });
