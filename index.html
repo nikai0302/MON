@@ -1998,6 +1998,27 @@ function renderGoals(){
 }
 
 // ══════════════ VAULT ══════════════
+function vaultDeposit(){
+  // Switch to vault type and scroll to log bar smoothly
+  stype('vault');
+  // If not on overview, go there
+  const overviewTab=document.getElementById('tab-overview');
+  if(!overviewTab.classList.contains('active')){
+    ST('overview');
+    setTimeout(()=>{
+      const qbar=document.getElementById('qbar');
+      if(qbar)qbar.scrollIntoView({behavior:'smooth',block:'center'});
+      const amt=document.getElementById('q-amt');
+      if(amt)amt.focus();
+    },300);
+  } else {
+    const qbar=document.getElementById('qbar');
+    if(qbar)qbar.scrollIntoView({behavior:'smooth',block:'center'});
+    const amt=document.getElementById('q-amt');
+    if(amt)setTimeout(()=>amt.focus(),100);
+  }
+}
+
 function vaultWithdraw(){
   const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
   const inp=prompt('Withdraw from vault (€):\nVault balance: '+fmtE(v),'');
@@ -2150,7 +2171,7 @@ function render(){
   </div>`;
   localStorage.setItem('mon_prev_nw',netWorth.toFixed(2));
   // Vault
-  document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Locked — tap Vault in log to deposit</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="stype('vault');ST('overview')">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
+  document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Auto-filled on payday · tap Deposit to add more</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
   // Streak
   const days7=[];const today=new Date();
   for(let i=6;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');days7.push(S.streakData?.[ds]===true)}
@@ -2252,10 +2273,18 @@ function render(){
   // Daily banner
   const bz=document.getElementById('daily-banner');const ds=now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
   let cls,msg,amt,sub;
-  if(bal<=0){cls='bad';msg='Your balance is empty. Avoid spending until payday.';amt='€0';sub='Payday in '+dl+'d'}
-  else if(res===0){cls='ok';msg='No bills or savings reserved before payday.';amt=fmtE(bal);sub='Payday in '+dl+' day'+(dl!==1?'s':'')}
-  else if(safe<=0){cls='bad';const parts=[];if(billsEur>0)parts.push('bills '+fmtE(billsEur));if(sav>0)parts.push('savings '+fmtE(sav));msg='Your '+parts.join(' + ')+' exceed your balance.';amt='€0';sub=fmtE(res)+' reserved · payday in '+dl+'d'}
-  else{cls=safe<bal*.15?'warn':'ok';const parts=[];if(billsEur>0)parts.push(fmtE(billsEur)+' in bills');if(sav>0)parts.push(fmtE(sav)+' savings');msg='To cover '+parts.join(' and ')+' before payday, you are only allowed to spend';amt=fmtE(safe);sub=fmtE(res)+' reserved · payday in '+dl+' day'+(dl!==1?'s':'')}
+  if(bal<=0){
+    cls='bad';msg='Balance empty — avoid spending until payday.';amt='€0';
+    sub='Payday in '+dl+' day'+(dl!==1?'s':'');
+  } else if(safe<=0){
+    cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
+    sub='Payday in '+dl+' day'+(dl!==1?'s':'');
+  } else {
+    cls=dailyLimit<20?'warn':'ok';
+    msg='You are allowed to spend';
+    amt=fmtE(dailyLimit);
+    sub='today · '+fmtE(safe)+' total until payday in '+dl+' day'+(dl!==1?'s':'');
+  }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
   const oz=document.getElementById('ovd-zone');const over=overdueP();
