@@ -854,11 +854,12 @@ function getNextPayday(){
   return d;
 }
 function daysUntil(date){const now=new Date();now.setHours(0,0,0,0);return Math.ceil((date-now)/86400000)}
-function isPaymentExpired(p){
+function isPaymentExpired(p, asOfDate){
+  // asOfDate: check expiry as of a specific date (defaults to today)
   if(!p.endDate)return false;
   const end=new Date(p.endDate+'T00:00:00');end.setHours(0,0,0,0);
-  const now=new Date();now.setHours(0,0,0,0);
-  return end<now;
+  const ref=asOfDate?new Date(asOfDate):new Date();ref.setHours(0,0,0,0);
+  return end<ref;
 }
 function nextBillDate(p){
   const now=new Date();now.setHours(0,0,0,0);
@@ -1485,8 +1486,8 @@ function getEventsOnDate(ds){
       events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true,riId:ri.id});
   });
 
-  // Scheduled bills — only from their start date (dueDate) onwards
-  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+  // Scheduled bills — only from their start date (dueDate) onwards, and before end date
+  S.payments.filter(p=>!isPaymentExpired(p,target)).forEach(p=>{
     const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
     const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
     if(occursOnDate(base,target,p.freq))
@@ -1589,18 +1590,20 @@ function getBalanceOnDate(ds){
           const bDay=Math.min(base.getDate(),daysInCurMonth);
           const baseYM=base.getFullYear()*12+base.getMonth();
           const curYM=cy*12+cm;
-          if(curYM>=baseYM&&bDay>=startDay&&bDay<=endDay)
+          const billDate=new Date(cy,cm,bDay);
+          if(curYM>=baseYM&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate))
             bal=parseFloat((bal-eur).toFixed(2));
         } else if(p.freq==='annual'){
           if(base.getMonth()===cm){
             const bDay=base.getDate();
-            if(cy>=base.getFullYear()&&bDay>=startDay&&bDay<=endDay)
+            const billDate=new Date(cy,cm,bDay);
+            if(cy>=base.getFullYear()&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate))
               bal=parseFloat((bal-eur).toFixed(2));
           }
         } else if(p.freq==='weekly'){
           for(let d=startDay;d<=endDay;d++){
             const dt=new Date(cy,cm,d);dt.setHours(0,0,0,0);
-            if(dt>=base){
+            if(dt>=base&&!isPaymentExpired(p,dt)){
               const diff=Math.round((dt-base)/86400000);
               if(diff%7===0) bal=parseFloat((bal-eur).toFixed(2));
             }
