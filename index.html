@@ -1355,103 +1355,107 @@ function setForecastDate(ds){
 
 // Project balance forward — event-based: only changes when money actually moves
 function projectForward(days){
-  // Uses ACTUAL S.balance (not buffered). Simulates real events only.
   const r2=rate||63.5;
-  let bal=parseFloat((S.balance||0).toFixed(2));
-  let vlt=parseFloat((S.vault||0).toFixed(2));
-  const now=new Date();now.setHours(0,0,0,0);
-  const end=new Date(now.getTime()+days*86400000);
-  if(days<=0)return{balance:bal,vault:vlt,goals:S.goals.reduce((a,g)=>a+g.saved,0),
-    nw:bal+vlt+S.goals.reduce((a,g)=>a+g.saved,0),
-    incomePerMo:0,billsPerMo:0,avgSpendPerMo:0,savingsPerMo:0,netBalancePerMo:0,days:0};
+  // Always start from ACTUAL balance, no buffer, no adjustments
+  let bal=parseFloat(((S.balance)||0).toFixed(2));
+  let vlt=parseFloat(((S.vault)||0).toFixed(2));
 
-  // ── Salary paydays falling strictly between now and end ──
-  const salaryAmt=S.salary||0;
-  if(salaryAmt>0){
-    let cur=new Date(now.getFullYear(),now.getMonth(),1);
+  if(days<=0){
+    const g0=S.goals.reduce((a,g)=>a+g.saved,0);
+    return{balance:bal,vault:vlt,goals:g0,nw:parseFloat((bal+vlt+g0).toFixed(2)),
+      incomePerMo:0,billsPerMo:0,avgSpendPerMo:0,savingsPerMo:0,netBalancePerMo:0,days:0};
+  }
+
+  const today=new Date();today.setHours(0,0,0,0);
+  const endD=new Date(today.getTime()+days*86400000);
+
+  // Helper: get all occurrences of a monthly-based date between today+1 and endD
+  function monthlyDates(dayOfMonth){
+    const dates=[];
+    let y=today.getFullYear(),m=today.getMonth();
+    for(let s=0;s<120;s++){
+      const d=new Date(y,m,Math.min(dayOfMonth,lastDay(y,m)));
+      if(d>endD)break;
+      if(d>today)dates.push(new Date(d));
+      m++;if(m>11){m=0;y++;}
+    }
+    return dates;
+  }
+
+  // ── Salary ──
+  const salAmt=S.salary||0;
+  if(salAmt>0){
+    const pdDay=S.payday==='last'?32:parseInt(S.payday)||32; // 32=last day trick
+    let y=today.getFullYear(),m=today.getMonth();
     for(let s=0;s<60;s++){
-      const y=cur.getFullYear(),m=cur.getMonth();
-      const pd=new Date(y,m,resDay(S.payday,y,m));
-      if(pd>end)break;
-      if(pd>now){
-        bal+=salaryAmt;
+      const day=S.payday==='last'?lastDay(y,m):Math.min(parseInt(S.payday),lastDay(y,m));
+      const pd=new Date(y,m,day);
+      if(pd>endD)break;
+      if(pd>today){
+        bal=parseFloat((bal+salAmt).toFixed(2));
         const sv=S.savingsTarget||0;
         if(sv>0){vlt=parseFloat((vlt+sv).toFixed(2));bal=parseFloat((bal-sv).toFixed(2));}
       }
-      cur.setMonth(cur.getMonth()+1);
+      m++;if(m>11){m=0;y++;}
     }
   }
 
   // ── Recurring income ──
   (S.recurringIncome||[]).forEach(ri=>{
     const base=new Date(ri.date+'T00:00:00');
-    if(ri.freq==='once'){if(base>now&&base<=end)bal+=ri.amount;return;}
+    if(ri.freq==='once'){if(base>today&&base<=endD)bal=parseFloat((bal+ri.amount).toFixed(2));return;}
     if(ri.freq==='monthly'){
-      let cur=new Date(now.getFullYear(),now.getMonth(),1);
-      for(let s=0;s<60;s++){
-        const y=cur.getFullYear(),m=cur.getMonth();
-        const d=new Date(y,m,Math.min(base.getDate(),lastDay(y,m)));
-        if(d>end)break;
-        if(d>now)bal+=ri.amount;
-        cur.setMonth(cur.getMonth()+1);
-      }
+      monthlyDates(base.getDate()).forEach(()=>bal=parseFloat((bal+ri.amount).toFixed(2)));
     } else if(ri.freq==='weekly'){
-      let d=new Date(base);while(d<=now)d.setDate(d.getDate()+7);
-      for(let s=0;d<=end&&s<500;s++){bal+=ri.amount;d.setDate(d.getDate()+7);}
+      let d=new Date(base);while(d<=today)d.setDate(d.getDate()+7);
+      for(let s=0;d<=endD&&s<500;s++){bal=parseFloat((bal+ri.amount).toFixed(2));d.setDate(d.getDate()+7);}
     } else if(ri.freq==='annual'){
-      let d=new Date(now.getFullYear(),base.getMonth(),base.getDate());
-      if(d<=now)d.setFullYear(d.getFullYear()+1);
-      if(d<=end)bal+=ri.amount;
+      let d=new Date(today.getFullYear(),base.getMonth(),base.getDate());
+      if(d<=today)d=new Date(today.getFullYear()+1,base.getMonth(),base.getDate());
+      if(d<=endD)bal=parseFloat((bal+ri.amount).toFixed(2));
     }
   });
 
-  // ── Scheduled bills ──
+  // ── Bills ──
   S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
     const base=new Date(p.dueDate+'T00:00:00');
-    if(p.freq==='once'){if(base>now&&base<=end)bal-=eur;return;}
+    if(p.freq==='once'){if(base>today&&base<=endD)bal=parseFloat((bal-eur).toFixed(2));return;}
     if(p.freq==='monthly'){
-      let cur=new Date(now.getFullYear(),now.getMonth(),1);
-      for(let s=0;s<60;s++){
-        const y=cur.getFullYear(),m=cur.getMonth();
-        const d=new Date(y,m,Math.min(base.getDate(),lastDay(y,m)));
-        if(d>end)break;
-        if(d>now)bal-=eur;
-        cur.setMonth(cur.getMonth()+1);
-      }
+      monthlyDates(base.getDate()).forEach(()=>bal=parseFloat((bal-eur).toFixed(2)));
     } else if(p.freq==='weekly'){
-      let d=new Date(base);while(d<=now)d.setDate(d.getDate()+7);
-      for(let s=0;d<=end&&s<500;s++){bal-=eur;d.setDate(d.getDate()+7);}
+      let d=new Date(base);while(d<=today)d.setDate(d.getDate()+7);
+      for(let s=0;d<=endD&&s<500;s++){bal=parseFloat((bal-eur).toFixed(2));d.setDate(d.getDate()+7);}
     } else if(p.freq==='annual'){
-      let d=new Date(now.getFullYear(),base.getMonth(),base.getDate());
-      if(d<=now)d.setFullYear(d.getFullYear()+1);
-      if(d<=end)bal-=eur;
+      let d=new Date(today.getFullYear(),base.getMonth(),base.getDate());
+      if(d<=today)d=new Date(today.getFullYear()+1,base.getMonth(),base.getDate());
+      if(d<=endD)bal=parseFloat((bal-eur).toFixed(2));
     }
   });
 
-  // ── Discretionary spend — average of last 90 days NON-bill transactions ──
-  const ninetyAgo=new Date(now.getTime()-90*86400000);
-  const discSpend=S.transactions
+  // ── Discretionary spend (only if there's real history) ──
+  const ninetyAgo=new Date(today.getTime()-90*86400000);
+  const discTotal=S.transactions
     .filter(t=>t.type==='spend'&&!t.billId&&new Date(t.date+'T00:00:00')>=ninetyAgo)
     .reduce((a,t)=>a+t.amt,0);
-  const dailyDisc=discSpend/90;
-  bal=parseFloat((bal-dailyDisc*days).toFixed(2));
+  const dailyDisc=discTotal/90;
+  if(dailyDisc>0)bal=parseFloat((bal-dailyDisc*days).toFixed(2));
 
-  // ── Goals: count salary paydays as contribution triggers ──
+  // ── Goal savings (one contribution per payday in period) ──
   let pdCount=0;
-  if(salaryAmt>0){
-    let cur=new Date(now.getFullYear(),now.getMonth(),1);
+  if(salAmt>0){
+    let y=today.getFullYear(),m=today.getMonth();
     for(let s=0;s<60;s++){
-      const y=cur.getFullYear(),m=cur.getMonth();
-      const pd=new Date(y,m,resDay(S.payday,y,m));
-      if(pd>end)break;
-      if(pd>now)pdCount++;
-      cur.setMonth(cur.getMonth()+1);
+      const day=S.payday==='last'?lastDay(y,m):Math.min(parseInt(S.payday),lastDay(y,m));
+      const pd=new Date(y,m,day);
+      if(pd>endD)break;
+      if(pd>today)pdCount++;
+      m++;if(m>11){m=0;y++;}
     }
   }
   const projGoals=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+(g.monthly||0)*pdCount),0);
 
-  // ── Monthly equivalents for summary display only ──
+  // ── Monthly summary stats for display ──
   const totalIncPerMo=(S.salary||0)+(S.recurringIncome||[]).reduce((a,r)=>{
     if(r.freq==='monthly')return a+r.amount;
     if(r.freq==='weekly')return a+r.amount*52/12;
@@ -1468,11 +1472,14 @@ function projectForward(days){
   const discPerMo=dailyDisc*30.44;
   const savPerMo=(S.savingsTarget||0)+S.goals.reduce((a,g)=>a+(g.monthly||0),0);
 
-  bal=parseFloat(bal.toFixed(2));
-  vlt=parseFloat(vlt.toFixed(2));
-  return{balance:bal,vault:vlt,goals:projGoals,nw:parseFloat((bal+vlt+projGoals).toFixed(2)),
-    incomePerMo:totalIncPerMo,billsPerMo,avgSpendPerMo:discPerMo,
-    savingsPerMo:savPerMo,netBalancePerMo:totalIncPerMo-billsPerMo-discPerMo-savPerMo,days};
+  return{
+    balance:bal,vault:vlt,goals:projGoals,
+    nw:parseFloat((bal+vlt+projGoals).toFixed(2)),
+    incomePerMo:totalIncPerMo,billsPerMo,
+    avgSpendPerMo:discPerMo,savingsPerMo:savPerMo,
+    netBalancePerMo:parseFloat((totalIncPerMo-billsPerMo-discPerMo-savPerMo).toFixed(2)),
+    days
+  };
 }
 
 
@@ -1484,6 +1491,9 @@ function renderForecast(){
 
   // Get base stats for summary line
   const base=projectForward(30);
+
+  // Today row (days=0) to verify starting point
+  const todayProj=projectForward(0);
 
   // Preset periods
   const presets=[
@@ -1509,7 +1519,7 @@ function renderForecast(){
   let customRow='';
   if(forecastCustomDate){
     const target=new Date(forecastCustomDate+'T00:00:00');target.setHours(0,0,0,0);
-    const daysUntilTarget=Math.max(1,Math.ceil((target-now)/86400000));
+    const daysUntilTarget=Math.max(0,Math.ceil((target-now)/86400000));
     const p=projectForward(daysUntilTarget);
     const lbl=target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
     const col=p.balance>=0?'green':'red';
@@ -1539,6 +1549,13 @@ function renderForecast(){
       <div>To savings: <strong>${fmtE(base.savingsPerMo)}/mo</strong> · Net: <strong style="color:${base.netBalancePerMo>=0?'var(--green-d)':'var(--red-d)'}">${fmtE(base.netBalancePerMo)}/mo</strong></div>
     </div>
     <div style="height:.5px;background:rgba(155,109,206,.2);margin:12px 0"></div>
+    <div class="forecast-row" style="background:rgba(255,255,255,.5);border-radius:8px;padding:6px 10px;margin-bottom:4px">
+      <span class="forecast-lbl" style="font-weight:700;color:var(--text)">Today</span>
+      <div style="text-align:right">
+        <div class="forecast-val" style="color:var(--text)">${fmtE(todayProj.nw)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(todayProj.balance)} · vault ${fmtE(todayProj.vault)}</div>
+      </div>
+    </div>
     ${rows}
     ${customRow}
     <div style="margin-top:14px;padding-top:12px;border-top:.5px solid rgba(155,109,206,.2)">
