@@ -540,6 +540,12 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Reserved each cycle (€)</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Spending buffer</div><div class="s">Extra % held back from safe-to-spend</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:55px" oninput="sv()"/>
+            <span style="font-size:14px;font-weight:700;color:var(--purple)">%</span>
+          </div>
+        </div>
         <div class="strow"><div class="stlbl"><div class="n">Pay day</div><div class="s">Day salary arrives</div></div>
           <select class="stinp" id="set-pd" onchange="sv()">
             <option value="last">Last day</option>
@@ -714,7 +720,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true,forecast:true}};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true,forecast:true},bufferPct:20};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -991,7 +997,10 @@ function logTx(){
     S.transactions.push({id:Date.now(),type:ltype,desc,cat,amt,date:dateVal});
   }
   // streak check: did today's total spend stay under daily limit?
-  const r2=rate||63.5;const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const safe=Math.max(0,(S.balance||0)-billsEur-sav);
+  const r2=rate||63.5;const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;
+  const _rawSafe=Math.max(0,(S.balance||0)-billsEur-sav);
+  const _buf=((S.bufferPct!==undefined?S.bufferPct:20)/100);
+  const safe=Math.max(0,_rawSafe*(1-_buf));
   const todaySpend=S.transactions.filter(t=>t.type==='spend'&&t.date===todayStr()).reduce((a,t)=>a+t.amt,0);
   const daysLeft=daysUntil(getNextPayday());const dailyLimit=daysLeft>0?safe/daysLeft:safe;
   updateStreak(todayStr(),todaySpend<=dailyLimit);
@@ -1344,75 +1353,146 @@ function setForecastDate(ds){
   renderForecast();
 }
 
-function renderForecast(){
-  const fz=document.getElementById('forecast-zone');
-  if(!fz||S.sectionToggles?.forecast===false)return;
+// Convert any recurring item to a monthly-equivalent amount
+function toMonthlyAmt(item, amtKey){
+  const amt=item[amtKey]||0;
+  if(item.freq==='monthly') return amt;
+  if(item.freq==='weekly')  return amt*52/12;
+  if(item.freq==='annual')  return amt/12;
+  if(item.freq==='once')    return 0; // one-time ignored in forecast
+  return amt;
+}
+
+// Project balance/vault/goals forward by exact number of days
+function projectForward(days){
   const r2=rate||63.5;
   const balance=S.balance||0;
   const vault=S.vault||0;
-  const salary=S.salary||0;
-  const monthlyBills=S.payments.filter(p=>p.freq==='monthly').reduce((a,p)=>a+(p.currency==='PHP'?p.amountPhp/r2:p.amountEur),0);
-  const monthlyRI=(S.recurringIncome||[]).filter(r=>r.freq==='monthly').reduce((a,r)=>a+r.amount,0);
-  const savingsTarget=S.savingsTarget||0;
-  const totalGoalCommit=S.goals.reduce((a,g)=>a+g.monthly,0);
+  const months=days/30.44; // fractional months
+
+  // ── Income sources per month ──
+  const salaryPerMo=S.salary||0;
+  // All recurring income (salary + RI treated equally as income)
+  const riPerMo=(S.recurringIncome||[]).reduce((a,r)=>a+toMonthlyAmt(r,'amount'),0);
+  const totalIncomePerMo=salaryPerMo+riPerMo;
+
+  // ── Bills per month (all frequencies, skip expired) ──
+  const billsPerMo=S.payments
+    .filter(p=>!isPaymentExpired(p))
+    .reduce((a,p)=>{
+      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+      return a+toMonthlyAmt(p,p.currency==='PHP'?'amountPhp':'amountEur')*(p.currency==='PHP'?1/r2:1);
+    },0);
+
+  // ── Average actual spend per month (last 3 months, exclude transfers to vault) ──
   const now=new Date();
   const threeAgo=new Date(now.getFullYear(),now.getMonth()-3,1);
-  const recentSpend=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo).reduce((a,t)=>a+t.amt,0);
-  const avgSpend=recentSpend/3;
-  const netPerMonth=(salary+monthlyRI)-monthlyBills-avgSpend-savingsTarget-totalGoalCommit;
+  const recentSpend=S.transactions
+    .filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo)
+    .reduce((a,t)=>a+t.amt,0);
+  const avgSpendPerMo=recentSpend/3;
 
-  // Preset periods + optional custom date
-  const presets=[{mo:3,label:'3 months'},{mo:6,label:'6 months'},{mo:12,label:'1 year'},{mo:24,label:'2 years'}];
-  let customRow='';
-  if(forecastCustomDate){
-    const target=new Date(forecastCustomDate+'T00:00:00');
-    const moCustom=Math.max(1,Math.round((target-now)/(1000*60*60*24*30.44)));
-    const pb=balance+(netPerMonth*moCustom);
-    const pv=vault+(savingsTarget*moCustom);
-    const pg=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*moCustom),0);
-    const pnw=pb+pv+pg;
-    const lbl=target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-    customRow=`<div class="forecast-row" style="background:rgba(155,109,206,.08);border-radius:8px;padding:4px 8px;margin:4px 0">
-      <span class="forecast-lbl" style="color:var(--purple-d);font-weight:700">📅 ${lbl}</span>
-      <div style="text-align:right">
-        <div class="forecast-val ${pb>=0?'green':'red'}">${fmtE(pnw)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(pb)} · vault ${fmtE(pv)}</div>
-      </div>
-    </div>`;
-  }
+  // ── Savings per month ──
+  const savingsPerMo=(S.savingsTarget||0)+S.goals.reduce((a,g)=>a+(g.monthly||0),0);
 
-  const rows=presets.map(({mo,label})=>{
-    const pb=balance+(netPerMonth*mo);
-    const pv=vault+(savingsTarget*mo);
-    const pg=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*mo),0);
-    const pnw=pb+pv+pg;
+  // ── Net cash flow per month ──
+  // Income comes in, bills go out, avg discretionary spend goes out, savings move to vault
+  const cashInPerMo=totalIncomePerMo;
+  const cashOutPerMo=billsPerMo+(avgSpendPerMo>0?avgSpendPerMo:0);
+  const toVaultPerMo=savingsPerMo;
+  const netBalancePerMo=cashInPerMo-cashOutPerMo-toVaultPerMo;
+
+  // Project
+  const projBalance=balance+(netBalancePerMo*months);
+  const projVault=vault+(toVaultPerMo*months);
+  const projGoalSaved=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+(g.monthly||0)*months),0);
+  const projNW=projBalance+projVault+projGoalSaved;
+
+  return {
+    balance:projBalance,
+    vault:projVault,
+    goals:projGoalSaved,
+    nw:projNW,
+    incomePerMo:totalIncomePerMo,
+    billsPerMo,
+    avgSpendPerMo,
+    savingsPerMo,
+    netBalancePerMo,
+    months
+  };
+}
+
+function renderForecast(){
+  const fz=document.getElementById('forecast-zone');
+  if(!fz||S.sectionToggles?.forecast===false)return;
+
+  const now=new Date();now.setHours(0,0,0,0);
+
+  // Get base stats for summary line
+  const base=projectForward(30);
+
+  // Preset periods
+  const presets=[
+    {days:90, label:'3 months'},
+    {days:180,label:'6 months'},
+    {days:365,label:'1 year'},
+    {days:730,label:'2 years'},
+  ];
+
+  const rows=presets.map(({days,label})=>{
+    const p=projectForward(days);
+    const col=p.balance>=0?'green':'red';
     return`<div class="forecast-row">
       <span class="forecast-lbl">${label}</span>
       <div style="text-align:right">
-        <div class="forecast-val ${pb>=0?'green':'red'}">${fmtE(pnw)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(pb)} · vault ${fmtE(pv)}</div>
+        <div class="forecast-val ${col}">${fmtE(p.nw)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(p.balance)} · vault ${fmtE(p.vault)}</div>
       </div>
     </div>`;
   }).join('');
 
-  const disclaimer=avgSpend===0
-    ?'<div style="font-size:11px;color:var(--text2);margin-top:10px">Log some transactions for more accurate forecasts.</div>'
-    :'<div style="font-size:11px;color:var(--text2);margin-top:10px">Based on avg spend of '+fmtE(avgSpend)+'/mo over last 3 months.</div>';
+  // Custom date row
+  let customRow='';
+  if(forecastCustomDate){
+    const target=new Date(forecastCustomDate+'T00:00:00');target.setHours(0,0,0,0);
+    const daysUntilTarget=Math.max(1,Math.ceil((target-now)/86400000));
+    const p=projectForward(daysUntilTarget);
+    const lbl=target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+    const col=p.balance>=0?'green':'red';
+    customRow=`<div class="forecast-row" style="background:rgba(155,109,206,.10);border-radius:10px;padding:10px 12px;margin:8px 0">
+      <span class="forecast-lbl" style="color:var(--purple-d);font-weight:800">📅 ${lbl} (${daysUntilTarget}d)</span>
+      <div style="text-align:right">
+        <div class="forecast-val ${col}" style="font-size:18px">${fmtE(p.nw)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(p.balance)} · vault ${fmtE(p.vault)}</div>
+        <div style="font-size:11px;color:var(--text2)">goals saved ${fmtE(p.goals)}</div>
+      </div>
+    </div>`;
+  }
+
+  const hasSpendData=base.avgSpendPerMo>0;
+  const disclaimer=`<div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.5">
+    ${hasSpendData
+      ?'Based on avg spend of '+fmtE(base.avgSpendPerMo)+'/mo over last 3 months.'
+      :'Log transactions so MON can use your real spending in forecasts.'}
+  </div>`;
 
   const dateVal=forecastCustomDate||'';
   fz.innerHTML=`<div class="forecast-card">
     <div class="forecast-title">📈 Financial forecast</div>
-    <div style="font-size:12px;color:var(--purple);margin-bottom:12px;line-height:1.4">
-      Income ${fmtE(salary+monthlyRI)}/mo · Bills ${fmtE(monthlyBills)}/mo · Net ${fmtE(netPerMonth)}/mo
+    <div style="font-size:12px;color:var(--purple);margin-bottom:4px;line-height:1.6">
+      <div>Income: <strong>${fmtE(base.incomePerMo)}/mo</strong> (salary + recurring)</div>
+      <div>Bills: <strong>${fmtE(base.billsPerMo)}/mo</strong> · Avg spend: <strong>${fmtE(base.avgSpendPerMo)}/mo</strong></div>
+      <div>To savings: <strong>${fmtE(base.savingsPerMo)}/mo</strong> · Net: <strong style="color:${base.netBalancePerMo>=0?'var(--green-d)':'var(--red-d)'}">${fmtE(base.netBalancePerMo)}/mo</strong></div>
     </div>
+    <div style="height:.5px;background:rgba(155,109,206,.2);margin:12px 0"></div>
     ${rows}
     ${customRow}
     <div style="margin-top:14px;padding-top:12px;border-top:.5px solid rgba(155,109,206,.2)">
-      <div style="font-size:12px;font-weight:700;color:var(--purple-d);margin-bottom:6px">Pick a custom date</div>
+      <div style="font-size:12px;font-weight:700;color:var(--purple-d);margin-bottom:8px">📅 Pick a custom date</div>
       <input type="date" value="${dateVal}"
-        style="width:100%;padding:11px 14px;border:1.5px solid rgba(155,109,206,.3);border-radius:var(--rs);font-size:15px;background:rgba(255,255,255,.8);color:var(--text);font-family:inherit;outline:none;-webkit-appearance:none"
+        style="width:100%;padding:12px 14px;border:1.5px solid rgba(155,109,206,.3);border-radius:var(--rs);font-size:15px;background:rgba(255,255,255,.85);color:var(--text);font-family:inherit;outline:none;-webkit-appearance:none;-webkit-tap-highlight-color:transparent"
         onchange="setForecastDate(this.value)"/>
-      ${forecastCustomDate?'<button onclick="forecastCustomDate=null;renderForecast()" style="margin-top:8px;background:none;border:none;color:var(--text2);font-size:13px;cursor:pointer;font-family:inherit">✕ Clear custom date</button>':''}
+      ${forecastCustomDate?`<button onclick="forecastCustomDate=null;renderForecast()" style="margin-top:8px;background:none;border:none;color:var(--text2);font-size:13px;cursor:pointer;font-family:inherit">✕ Clear custom date</button>`:''}
     </div>
     ${disclaimer}
   </div>`;
@@ -1438,6 +1518,8 @@ function sv(){
   S.salary=parseCur(document.getElementById('set-sal').value)||0;
   S.savingsTarget=parseCur(document.getElementById('set-svt').value)||0;
   S.payday=document.getElementById('set-pd').value;
+  const buf=parseInt(document.getElementById('set-buffer').value);
+  S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
   persist();render();
 }
 function exportData(){
@@ -1476,6 +1558,7 @@ function importData(event){
         if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
       });
       document.getElementById('set-pd').value=S.payday||'last';
+  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
       render();
       showToast('✅ Backup restored successfully!',3000);
     }catch(err){
@@ -1728,7 +1811,12 @@ function render(){
   renderGoalsHome();
   renderForecast();
   const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
-  const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const res=billsEur+sav;const safe=Math.max(0,bal-res);
+  const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const res=billsEur+sav;
+  const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
+  const rawSafe=Math.max(0,bal-res);
+  // Apply buffer: hold back bufferPct of the raw safe amount as a cushion
+  const safe=Math.max(0,rawSafe*(1-bufferPct));
+  const bufferAmt=rawSafe-safe;
   const dl=daysUntil(getNextPayday());const pd=getNextPayday();
   const{current:streak,best}=getStreak();
   document.getElementById('hdr-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
@@ -1933,6 +2021,7 @@ window.addEventListener('load',()=>{
   const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
   Object.entries(fields).forEach(([id,key])=>{const el=document.getElementById('set-'+id);if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',')});
   document.getElementById('set-pd').value=S.payday||'last';
+  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
   // Restore toggle states
