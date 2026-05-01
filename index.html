@@ -77,6 +77,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .i-bil{background:linear-gradient(135deg,var(--warn-l),#fde0b8)}
 .i-php{background:linear-gradient(135deg,var(--php-l),#ddd0ff)}
 .i-vlt{background:linear-gradient(135deg,var(--gold-l),#ffe8a0)}
+.i-ri{background:linear-gradient(135deg,#d4f5e5,#b8f0d4)}
 .rinfo{flex:1;min-width:0}
 .rname{font-size:15px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rsub{font-size:12px;color:var(--text2);margin-top:3px;line-height:1.4}
@@ -455,6 +456,9 @@ select.stinp{cursor:pointer}
 
     <!-- BILLS -->
     <div id="tab-payments" class="tab">
+      <div class="slbl">Recurring income</div>
+      <div class="lcard" id="ri-list"><div class="empty-r">No recurring income yet</div></div>
+      <button class="addbtn" style="margin-bottom:20px" onclick="openRIF()">＋ Add recurring income</button>
       <div id="php-zone"></div>
       <div class="slbl">Scheduled payments</div>
       <div class="lcard" id="pay-list"><div class="empty-r">No payments yet</div></div>
@@ -556,6 +560,53 @@ select.stinp{cursor:pointer}
   </div>
 </div>
 
+<!-- RECURRING INCOME FORM -->
+<div class="sbg" id="rif-sheet" onclick="closeRIF(event)">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="rif-title">Add recurring income</div>
+    <div class="fld"><label>Income name</label><input id="rif-name" type="text" placeholder="e.g. Freelance, Rental, Side job…"/></div>
+    <div class="fld"><label>Amount (€)</label><input id="rif-amount" type="text" inputmode="decimal" placeholder="0,00"/><div class="fhint" id="rif-amount-hint">This can be edited each time it arrives</div></div>
+    <div class="fld"><label>Expected date (first / next occurrence)</label><div id="rif-cal-wrap"></div><div id="rif-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div><input id="rif-date-hidden" type="hidden"/></div>
+    <div class="fld"><label>Frequency</label><select id="rif-freq"><option value="monthly">Monthly</option><option value="weekly">Weekly (every 7 days)</option><option value="annual">Annual (once a year)</option><option value="once">One-time only</option></select></div>
+    <div class="sacts"><button class="bcancel" onclick="closeRIF()">Cancel</button><button class="bsave" onclick="submitRIF()">Save</button></div>
+  </div>
+</div>
+
+<!-- RECURRING INCOME ACTION SHEET -->
+<div class="asheet-bg" id="ri-action-sheet" onclick="closeRIAction(event)">
+  <div class="asheet" onclick="event.stopPropagation()">
+    <div class="asheet-title">Edit recurring income</div>
+    <div class="asheet-desc" id="rias-desc">Choose what to change</div>
+    <button class="asheet-opt green" onclick="riActionChoice('log')">
+      <span class="asheet-opt-icon">💰</span>
+      <div class="asheet-opt-text"><div class="t">Log this month's income</div><div class="s">Add to balance now — edit amount if it differs</div></div>
+    </button>
+    <button class="asheet-opt blue" onclick="riActionChoice('next')">
+      <span class="asheet-opt-icon">1️⃣</span>
+      <div class="asheet-opt-text"><div class="t">Change next occurrence only</div><div class="s">One-off amount or date change</div></div>
+    </button>
+    <button class="asheet-opt purple" onclick="riActionChoice('forward')">
+      <span class="asheet-opt-icon">♾️</span>
+      <div class="asheet-opt-text"><div class="t">Update all future occurrences</div><div class="s">Permanently changes the schedule</div></div>
+    </button>
+    <button class="asheet-cancel" onclick="closeRIAction()">Cancel</button>
+  </div>
+</div>
+
+<!-- RECURRING INCOME EDIT SHEET -->
+<div class="sbg" id="ri-edit-sheet" onclick="closeRIEdit(event)">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="ries-title">Edit income</div>
+    <input type="hidden" id="ries-id"/>
+    <input type="hidden" id="ries-scope"/>
+    <div class="fld"><label>Amount received (€)</label><input id="ries-amount" type="text" inputmode="decimal" placeholder="Actual amount this time"/></div>
+    <div class="fld"><label>Date received / expected</label><div id="ries-cal-wrap"></div><div id="ries-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div><input id="ries-date-hidden" type="hidden"/></div>
+    <div class="sacts"><button class="bcancel" onclick="closeRIEdit()">Cancel</button><button class="bsave" onclick="saveRIEdit()">Save</button></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -579,7 +630,7 @@ function startChPin(){pmode='set-new';pb='';udots();document.getElementById('lsu
 const CATS=['🍔 Food','🚗 Transport','🎉 Entertainment','🏥 Health','👕 Shopping','🏠 Home','📱 Subscriptions','✈️ Travel','📚 Education','💸 Other'];
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],transactions:[],goals:[],balanceHidden:false,streakData:{}};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{}};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1006,6 +1057,131 @@ function salActionChoice(what){
   persist();render();
 }
 
+// ══════════════ RECURRING INCOME ══════════════
+let riActionId=null;
+
+// Next occurrence of a recurring income (same logic as bills)
+function nextRIDate(ri){
+  const now=new Date();now.setHours(0,0,0,0);
+  const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
+  if(ri.freq==='once') return base;
+  if(ri.freq==='weekly'){let n=new Date(base);while(n<=now)n.setDate(n.getDate()+7);return n;}
+  if(ri.freq==='annual'){let d=new Date(now.getFullYear(),base.getMonth(),base.getDate());if(d<=now)d=new Date(now.getFullYear()+1,base.getMonth(),base.getDate());return d;}
+  // monthly
+  if(base>now) return base;
+  const dn=base.getDate();
+  let d=new Date(now.getFullYear(),now.getMonth(),Math.min(dn,lastDay(now.getFullYear(),now.getMonth())));d.setHours(0,0,0,0);
+  if(d<=now){const nm=now.getMonth()+1>11?0:now.getMonth()+1,ny=now.getMonth()+1>11?now.getFullYear()+1:now.getFullYear();d=new Date(ny,nm,Math.min(dn,lastDay(ny,nm)));}
+  return d;
+}
+
+// Open add/edit form
+let rifEditId=null;
+function openRIF(eid){
+  rifEditId=eid||null;
+  document.getElementById('rif-title').textContent=eid?'Edit recurring income':'Add recurring income';
+  ['rif-name','rif-amount'].forEach(id=>{document.getElementById(id).value='';});
+  document.getElementById('rif-date-hidden').value='';
+  document.getElementById('rif-date-display').textContent='';
+  document.getElementById('rif-freq').value='monthly';
+  if(eid){
+    const ri=S.recurringIncome.find(x=>x.id===eid);
+    if(ri){
+      document.getElementById('rif-name').value=ri.name;
+      document.getElementById('rif-amount').value=ri.amount.toFixed(2).replace('.',',');
+      document.getElementById('rif-freq').value=ri.freq;
+      if(ri.date){document.getElementById('rif-date-hidden').value=ri.date;document.getElementById('rif-date-display').textContent='✓ '+fmtDate(ri.date);document.getElementById('rif-date-display').style.color='var(--green-d)';}
+    }
+  }
+  buildCal('rif-cal-wrap','rif-date-hidden','rif-date-display',document.getElementById('rif-date-hidden').value||null);
+  document.getElementById('rif-sheet').classList.add('open');
+  setTimeout(()=>document.getElementById('rif-name').focus(),150);
+}
+function closeRIF(e){if(!e||e.target===document.getElementById('rif-sheet'))document.getElementById('rif-sheet').classList.remove('open');}
+function submitRIF(){
+  const name=document.getElementById('rif-name').value.trim();
+  const amount=parseCur(document.getElementById('rif-amount').value);
+  const date=document.getElementById('rif-date-hidden').value;
+  const freq=document.getElementById('rif-freq').value;
+  if(!name){alert('Please enter a name.');return;}
+  if(!amount||amount<=0){alert('Please enter an amount.');return;}
+  if(!date){alert('Please select a date.');return;}
+  if(rifEditId){
+    const ri=S.recurringIncome.find(x=>x.id===rifEditId);
+    if(ri){ri.name=name;ri.amount=amount;ri.date=date;ri.freq=freq;}
+  } else {
+    S.recurringIncome.push({id:Date.now(),name,amount,date,freq,overrides:[]});
+  }
+  persist();document.getElementById('rif-sheet').classList.remove('open');render();showToast('✅ Recurring income saved');
+}
+function delRI(id){
+  if(!confirm('Remove this recurring income?'))return;
+  S.recurringIncome=S.recurringIncome.filter(r=>r.id!==id);persist();render();
+}
+
+// Action sheet — log / edit next / edit all
+function openRIAction(id){
+  riActionId=id;
+  const ri=S.recurringIncome.find(x=>x.id===id);if(!ri)return;
+  const nd=nextRIDate(ri);
+  document.getElementById('rias-desc').innerHTML=`<strong>${ri.name}</strong> — ${fmtE(ri.amount)}<br>Next: ${fmtShort(nd)}`;
+  document.getElementById('ri-action-sheet').classList.add('open');
+}
+function closeRIAction(e){if(!e||e.target===document.getElementById('ri-action-sheet'))document.getElementById('ri-action-sheet').classList.remove('open');}
+function riActionChoice(scope){
+  document.getElementById('ri-action-sheet').classList.remove('open');
+  const ri=S.recurringIncome.find(x=>x.id===riActionId);if(!ri)return;
+  if(scope==='log'){
+    // Open edit sheet pre-filled so user can tweak amount before logging
+    openRIEdit(riActionId,'log');
+  } else {
+    openRIEdit(riActionId,scope);
+  }
+}
+
+function openRIEdit(id,scope){
+  const ri=S.recurringIncome.find(x=>x.id===id);if(!ri)return;
+  document.getElementById('ries-id').value=id;
+  document.getElementById('ries-scope').value=scope;
+  const titles={log:'Log this income',next:'Edit next occurrence',forward:'Update all future'};
+  document.getElementById('ries-title').textContent=titles[scope]||'Edit income';
+  document.getElementById('ries-amount').value=ri.amount.toFixed(2).replace('.',',');
+  const nd=nextRIDate(ri);
+  const ds=nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0');
+  document.getElementById('ries-date-hidden').value=ds;
+  document.getElementById('ries-date-display').textContent='';
+  buildCal('ries-cal-wrap','ries-date-hidden','ries-date-display',ds);
+  document.getElementById('ri-edit-sheet').classList.add('open');
+}
+function closeRIEdit(e){if(!e||e.target===document.getElementById('ri-edit-sheet'))document.getElementById('ri-edit-sheet').classList.remove('open');}
+function saveRIEdit(){
+  const id=parseInt(document.getElementById('ries-id').value);
+  const scope=document.getElementById('ries-scope').value;
+  const ri=S.recurringIncome.find(x=>x.id===id);if(!ri)return;
+  const amt=parseCur(document.getElementById('ries-amount').value);
+  const date=document.getElementById('ries-date-hidden').value;
+  if(!amt||amt<=0){showToast('Please enter an amount');return;}
+  if(!date){showToast('Please select a date');return;}
+  if(scope==='log'){
+    // Log as income transaction
+    S.balance=parseFloat(((S.balance||0)+amt).toFixed(2));
+    S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💰 Income',amt,date});
+    const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+    showToast('✅ '+ri.name+' logged: +'+fmtE(amt));
+    // Advance the recurring date to next occurrence
+    ri.date=date;
+  } else if(scope==='next'){
+    if(!ri.overrides)ri.overrides=[];
+    ri.overrides=ri.overrides.filter(o=>o.date!==date);
+    ri.overrides.push({date,amount:amt});
+    showToast('✅ Next occurrence updated');
+  } else {
+    ri.amount=amt;ri.date=date;
+    showToast('✅ All future occurrences updated');
+  }
+  persist();document.getElementById('ri-edit-sheet').classList.remove('open');render();
+}
+
 // ══════════════ VAULT ══════════════
 function vaultWithdraw(){
   const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
@@ -1277,6 +1453,29 @@ function render(){
     const aC=isVault?'gold':isIn?'green':'red';const sign=isIn?'+':isVault?'→':'−';
     return`<div class="lrow"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${tx.desc}</div><div class="rsub">${fmtDate(tx.date)}${tx.cat&&tx.cat!=='💸 Other'?' · '+tx.cat:''}</div></div><div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div><button class="redit" onclick="openETX(${tx.id})">edit</button><button class="rdel" onclick="deleteTx(${tx.id})">×</button></div>`;
   }).join('');
+  // Recurring income list
+  const ril=document.getElementById('ri-list');
+  if(ril){
+    if(!S.recurringIncome||!S.recurringIncome.length){
+      ril.innerHTML='<div class="empty-r">No recurring income yet</div>';
+    } else {
+      ril.innerHTML=S.recurringIncome.map(ri=>{
+        const nd=nextRIDate(ri);const dt=daysUntil(nd);
+        const dueSoon=dt<=7;
+        return`<div class="lrow">
+          <div class="rico i-ri">💚</div>
+          <div class="rinfo">
+            <div class="rname">${ri.name}</div>
+            <div class="rsub">Expected ${fmtShort(nd)} · ${dt>0?dt+'d away':'today'} · ${ri.freq}</div>
+          </div>
+          <div class="ramt green">${fmtE(ri.amount)}</div>
+          <button class="redit" onclick="openRIAction(${ri.id})">edit</button>
+          <button class="rdel" onclick="delRI(${ri.id})">×</button>
+        </div>`;
+      }).join('');
+    }
+  }
+
   // PHP zone
   const phpPays=S.payments.filter(p=>p.currency==='PHP');
   document.getElementById('php-zone').innerHTML=phpPays.length&&rate?phpPays.map(p=>{const en=p.amountPhp/r2;const bd=nextBillDate(p);return`<div class="php-card"><div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div><div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div><div class="phpc-row"><span class="phpc-lbl">Your cost today</span><span class="phpc-val">${fmtE(en)}</span></div><div class="phpc-row"><span class="phpc-lbl">Rate (TapTap est.)</span><span class="phpc-val">₱${r2.toFixed(2)}/€</span></div><div class="phpc-row"><span class="phpc-lbl">Due</span><span class="phpc-val">${fmtShort(bd)} · ${daysUntil(bd)}d</span></div></div>`}).join(''):'';
@@ -1355,10 +1554,59 @@ window.addEventListener('load',()=>{
   addSwipeDownToClose('gf-sheet', closeGF);
   addSwipeDownToClose('etx-sheet', closeETX);
   addSwipeDownToClose('bill-edit-sheet', closeBillEdit);
+  addSwipeDownToClose('rif-sheet', closeRIF);
+  addSwipeDownToClose('ri-edit-sheet', closeRIEdit);
   // Push initial state so back button lands on overview, not previous page
   history.replaceState({tab:'overview'},'',window.location.pathname+'#overview');
 });
 </script>
+<!-- RECURRING INCOME FORM -->
+<div class="sbg" id="rif-sheet" onclick="closeRIF(event)">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="rif-title">Add recurring income</div>
+    <div class="fld"><label>Income name</label><input id="rif-name" type="text" placeholder="e.g. Freelance, Rental, Side job…"/></div>
+    <div class="fld"><label>Amount (€)</label><input id="rif-amount" type="text" inputmode="decimal" placeholder="0,00"/><div class="fhint" id="rif-amount-hint">This can be edited each time it arrives</div></div>
+    <div class="fld"><label>Expected date (first / next occurrence)</label><div id="rif-cal-wrap"></div><div id="rif-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div><input id="rif-date-hidden" type="hidden"/></div>
+    <div class="fld"><label>Frequency</label><select id="rif-freq"><option value="monthly">Monthly</option><option value="weekly">Weekly (every 7 days)</option><option value="annual">Annual (once a year)</option><option value="once">One-time only</option></select></div>
+    <div class="sacts"><button class="bcancel" onclick="closeRIF()">Cancel</button><button class="bsave" onclick="submitRIF()">Save</button></div>
+  </div>
+</div>
+
+<!-- RECURRING INCOME ACTION SHEET -->
+<div class="asheet-bg" id="ri-action-sheet" onclick="closeRIAction(event)">
+  <div class="asheet" onclick="event.stopPropagation()">
+    <div class="asheet-title">Edit recurring income</div>
+    <div class="asheet-desc" id="rias-desc">Choose what to change</div>
+    <button class="asheet-opt green" onclick="riActionChoice('log')">
+      <span class="asheet-opt-icon">💰</span>
+      <div class="asheet-opt-text"><div class="t">Log this month's income</div><div class="s">Add to balance now — edit amount if it differs</div></div>
+    </button>
+    <button class="asheet-opt blue" onclick="riActionChoice('next')">
+      <span class="asheet-opt-icon">1️⃣</span>
+      <div class="asheet-opt-text"><div class="t">Change next occurrence only</div><div class="s">One-off amount or date change</div></div>
+    </button>
+    <button class="asheet-opt purple" onclick="riActionChoice('forward')">
+      <span class="asheet-opt-icon">♾️</span>
+      <div class="asheet-opt-text"><div class="t">Update all future occurrences</div><div class="s">Permanently changes the schedule</div></div>
+    </button>
+    <button class="asheet-cancel" onclick="closeRIAction()">Cancel</button>
+  </div>
+</div>
+
+<!-- RECURRING INCOME EDIT SHEET -->
+<div class="sbg" id="ri-edit-sheet" onclick="closeRIEdit(event)">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="ries-title">Edit income</div>
+    <input type="hidden" id="ries-id"/>
+    <input type="hidden" id="ries-scope"/>
+    <div class="fld"><label>Amount received (€)</label><input id="ries-amount" type="text" inputmode="decimal" placeholder="Actual amount this time"/></div>
+    <div class="fld"><label>Date received / expected</label><div id="ries-cal-wrap"></div><div id="ries-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div><input id="ries-date-hidden" type="hidden"/></div>
+    <div class="sacts"><button class="bcancel" onclick="closeRIEdit()">Cancel</button><button class="bsave" onclick="saveRIEdit()">Save</button></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- BILL MODIFY ACTION SHEET -->
