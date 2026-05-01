@@ -573,7 +573,8 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Reserved each cycle (€)</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Auto-moved to vault on payday (€)</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Monthly spend budget</div><div class="s">Max you allow yourself to spend. Unspent rolls to vault at month end (€)</div></div><input class="stinp" id="set-budget" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer</div><div class="s">Extra % held back from safe-to-spend</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:55px" oninput="sv()"/>
@@ -754,11 +755,58 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true},bufferPct:20};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:''};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
 function persist(){try{localStorage.setItem('mon_v5',JSON.stringify(S))}catch(e){}}
+
+function checkMonthlyBudgetRollover(){
+  if(!S.monthlyBudget||S.monthlyBudget<=0)return;
+  // Check if we've already done rollover for this month
+  const now=new Date();
+  const monthKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  if(S.lastBudgetRollover===monthKey)return;
+  // Get cycle start (prev payday)
+  const cycleStart=getCycleStart();
+  const cycleStartStr=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
+  // Only roll over if we're at or after the payday (new cycle has started)
+  const pd=getNextPayday();
+  const prevPd=new Date(pd);prevPd.setMonth(prevPd.getMonth()-1);
+  // If today >= payday of this month, roll over last month's unspent budget
+  const todayD=new Date();todayD.setHours(0,0,0,0);
+  // Calculate spend in last cycle
+  const lastCycleStart=new Date(prevPd.getFullYear(),prevPd.getMonth(),resDay(S.payday,prevPd.getFullYear(),prevPd.getMonth()));
+  lastCycleStart.setHours(0,0,0,0);
+  const lastCycleEnd=new Date(cycleStart);lastCycleEnd.setHours(0,0,0,0);
+  // Check if last cycle is complete (cycle start has passed)
+  if(lastCycleEnd>todayD)return; // cycle hasn't completed yet
+  const cycleSpend=S.transactions
+    .filter(t=>{
+      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      return t.type==='spend'&&td>=lastCycleStart&&td<lastCycleEnd;
+    })
+    .reduce((a,t)=>a+t.amt,0);
+  const unspent=parseFloat((S.monthlyBudget-cycleSpend).toFixed(2));
+  if(unspent>0){
+    // Roll unspent budget into vault
+    S.vault=parseFloat(((S.vault||0)+unspent).toFixed(2));
+    S.transactions.push({
+      id:Date.now(),type:'vault',
+      desc:'Unspent budget rolled to vault',
+      cat:'🏦 Vault',amt:unspent,
+      date:cycleStartStr
+    });
+    S.lastBudgetRollover=monthKey;
+    persist();
+    setTimeout(()=>showToast('🏦 '+fmtE(unspent)+' unspent budget moved to vault!',4000),500);
+    const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
+  } else {
+    // Even if nothing to roll, mark as checked so we don't re-check
+    S.lastBudgetRollover=monthKey;
+    persist();
+  }
+}
 
 // ══════════════ HELPERS ══════════════
 function showToast(msg,dur=2200){const t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur)}
@@ -1029,6 +1077,15 @@ function logTx(){
   } else {
     S.balance=parseFloat(((S.balance||0)+(isIn?amt:-amt)).toFixed(2));
     S.transactions.push({id:Date.now(),type:ltype,desc,cat,amt,date:dateVal});
+    // On salary: auto-move savings target to vault
+    if(ltype==='salary'&&S.savingsTarget>0){
+      const sv=S.savingsTarget;
+      S.balance=parseFloat(((S.balance||0)-sv).toFixed(2));
+      S.vault=parseFloat(((S.vault||0)+sv).toFixed(2));
+      S.transactions.push({id:Date.now()+1,type:'vault',desc:'Auto-savings from salary',cat:'🏦 Vault',amt:sv,date:dateVal});
+      const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
+      showToast('💰 Salary logged · 🏦 '+fmtE(sv)+' auto-saved to vault');
+    }
   }
   // streak check: did today's total spend stay under daily limit?
   const r2=rate||63.5;const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;
@@ -1452,35 +1509,125 @@ function getBalanceOnDate(ds){
   const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
   const todayD=new Date();todayD.setHours(0,0,0,0);
   let bal=parseFloat((S.balance||0).toFixed(2));
+  const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()) return bal;
 
+  // PAST: undo logged transactions after target date
   if(target<todayD){
-    // Past: undo transactions that happened AFTER target date
     S.transactions.forEach(t=>{
       const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
       if(td>target){
         const isIn=t.type==='income'||t.type==='salary';
-        if(isIn) bal=parseFloat((bal-t.amt).toFixed(2));
-        else bal=parseFloat((bal+t.amt).toFixed(2));
+        bal=parseFloat((bal+(isIn?-t.amt:t.amt)).toFixed(2));
       }
     });
     return parseFloat(bal.toFixed(2));
   }
 
-  // Future: walk forward day by day adding scheduled events
-  let cursor=new Date(todayD.getTime()+86400000);
-  while(cursor<=target){
-    const ds2=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
-    const evs=getEventsOnDate(ds2);
-    evs.forEach(ev=>{
-      if(ev.logged) return; // already reflected in S.balance
-      if(ev.positive) bal=parseFloat((bal+ev.amt).toFixed(2));
-      else if(!ev.isDeduction) bal=parseFloat((bal-ev.amt).toFixed(2));
-      else bal=parseFloat((bal-ev.amt).toFixed(2)); // savings deduction
-    });
-    cursor.setDate(cursor.getDate()+1);
+  // FUTURE: iterate month by month — fast and accurate
+  // For each month between today and target, count how many times each event fires
+  const ty=todayD.getFullYear(), tm=todayD.getMonth(), td2=todayD.getDate();
+  const ey=target.getFullYear(), em=target.getMonth(), ed=target.getDate();
+
+  // Walk month by month
+  let cy=ty, cm=tm;
+  while(cy<ey||(cy===ey&&cm<=em)){
+    const daysInCurMonth=lastDay(cy,cm);
+    const isFirstMonth=cy===ty&&cm===tm;
+    const isLastMonth=cy===ey&&cm===em;
+
+    // Start day in this month (day after today for first month, 1 for others)
+    const startDay=isFirstMonth?td2+1:1;
+    // End day in this month (target day for last month, last day otherwise)
+    const endDay=isLastMonth?ed:daysInCurMonth;
+
+    if(startDay<=endDay){
+      // ── Salary ──
+      if(S.salary>0){
+        const pdDay=resDay(S.payday,cy,cm);
+        if(pdDay>=startDay&&pdDay<=endDay){
+          bal=parseFloat((bal+S.salary).toFixed(2));
+          // Savings target deducted on payday
+          const sv=S.savingsTarget||0;
+          if(sv>0) bal=parseFloat((bal-sv).toFixed(2));
+        }
+      }
+
+      // ── Recurring income ──
+      (S.recurringIncome||[]).forEach(ri=>{
+        const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
+        if(ri.freq==='monthly'){
+          const riDay=Math.min(base.getDate(),daysInCurMonth);
+          // Only if base date is on or before this month
+          const baseYM=base.getFullYear()*12+base.getMonth();
+          const curYM=cy*12+cm;
+          if(curYM>=baseYM&&riDay>=startDay&&riDay<=endDay)
+            bal=parseFloat((bal+ri.amount).toFixed(2));
+        } else if(ri.freq==='annual'){
+          if(base.getMonth()===cm){
+            const riDay=base.getDate();
+            const baseY=base.getFullYear();
+            if(cy>=baseY&&riDay>=startDay&&riDay<=endDay)
+              bal=parseFloat((bal+ri.amount).toFixed(2));
+          }
+        } else if(ri.freq==='weekly'){
+          // Count weekly occurrences in [startDay..endDay] of this month
+          for(let d=startDay;d<=endDay;d++){
+            const dt=new Date(cy,cm,d);dt.setHours(0,0,0,0);
+            if(dt>base){
+              const diff=Math.round((dt-base)/86400000);
+              if(diff%7===0) bal=parseFloat((bal+ri.amount).toFixed(2));
+            }
+          }
+        } else if(ri.freq==='once'){
+          if(base.getFullYear()===cy&&base.getMonth()===cm){
+            const riDay=base.getDate();
+            if(riDay>=startDay&&riDay<=endDay)
+              bal=parseFloat((bal+ri.amount).toFixed(2));
+          }
+        }
+      });
+
+      // ── Bills ──
+      S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+        const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+        const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+        if(p.freq==='monthly'){
+          const bDay=Math.min(base.getDate(),daysInCurMonth);
+          const baseYM=base.getFullYear()*12+base.getMonth();
+          const curYM=cy*12+cm;
+          if(curYM>=baseYM&&bDay>=startDay&&bDay<=endDay)
+            bal=parseFloat((bal-eur).toFixed(2));
+        } else if(p.freq==='annual'){
+          if(base.getMonth()===cm){
+            const bDay=base.getDate();
+            if(cy>=base.getFullYear()&&bDay>=startDay&&bDay<=endDay)
+              bal=parseFloat((bal-eur).toFixed(2));
+          }
+        } else if(p.freq==='weekly'){
+          for(let d=startDay;d<=endDay;d++){
+            const dt=new Date(cy,cm,d);dt.setHours(0,0,0,0);
+            if(dt>=base){
+              const diff=Math.round((dt-base)/86400000);
+              if(diff%7===0) bal=parseFloat((bal-eur).toFixed(2));
+            }
+          }
+        } else if(p.freq==='once'){
+          if(base.getFullYear()===cy&&base.getMonth()===cm){
+            const bDay=base.getDate();
+            if(bDay>=startDay&&bDay<=endDay)
+              bal=parseFloat((bal-eur).toFixed(2));
+          }
+        }
+      });
+    }
+
+    // Advance month
+    cm++;
+    if(cm>11){cm=0;cy++;}
   }
+
   return parseFloat(bal.toFixed(2));
 }
 
@@ -1534,7 +1681,39 @@ function renderCalView(){
   const firstDay=new Date(calViewYear,calViewMonth,1).getDay();
   const daysInMonth=lastDay(calViewYear,calViewMonth);
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
-  const fd=(firstDay+6)%7; // Mon-based
+  const fd=(firstDay+6)%7;
+
+  // ── Pre-compute balance for every day in this month in ONE pass ──
+  // Get balance at end of the day before this month starts
+  const monthStartDs=(calViewYear)+'-'+String(calViewMonth+1).padStart(2,'0')+'-01';
+  const dayBeforeMonth=new Date(calViewYear,calViewMonth,0); // last day of prev month
+  const dbmDs=dayBeforeMonth.getFullYear()+'-'+String(dayBeforeMonth.getMonth()+1).padStart(2,'0')+'-'+String(dayBeforeMonth.getDate()).padStart(2,'0');
+  let runBal=getBalanceOnDate(dbmDs);
+
+  // Walk day by day through the month, applying events
+  const dayBals={};
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const dayDate=new Date(calViewYear,calViewMonth,d);dayDate.setHours(0,0,0,0);
+    // Apply scheduled events for this day (only future or today)
+    if(dayDate>=today){
+      const evs=getEventsOnDate(ds);
+      evs.forEach(ev=>{
+        if(ev.logged)return; // already in S.balance
+        if(ev.positive)runBal=parseFloat((runBal+ev.amt).toFixed(2));
+        else runBal=parseFloat((runBal-ev.amt).toFixed(2));
+      });
+    } else if(dayDate.getTime()===today.getTime()){
+      runBal=parseFloat((S.balance||0).toFixed(2));
+    } else {
+      // Past day — use actual logged transactions
+      runBal=getBalanceOnDate(ds);
+    }
+    dayBals[d]=parseFloat(runBal.toFixed(2));
+  }
+  // Correct: set today's balance to actual S.balance
+  const todayDay=today.getFullYear()===calViewYear&&today.getMonth()===calViewMonth?today.getDate():null;
+  if(todayDay) dayBals[todayDay]=parseFloat((S.balance||0).toFixed(2));
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
   DAYS.forEach(d=>{html+=`<div class="cv-day-hdr">${d}</div>`;});
@@ -1550,11 +1729,7 @@ function renderCalView(){
     const isToday=new Date(calViewYear,calViewMonth,d).getTime()===today.getTime();
     const isSel=calViewSelected===ds;
     const isPast=new Date(calViewYear,calViewMonth,d)<today;
-    // Use cumulative balance including vault+goals = net worth
-    const bal=getBalanceOnDate(ds);
-    const vaultOnDate=S.vault||0; // vault is stable unless deposits made
-    const goalsSaved=S.goals.reduce((a,g)=>a+g.saved,0);
-    const nw=bal+vaultOnDate+goalsSaved;
+    const bal=dayBals[d];
     const balColor=bal>=0?'var(--green-d)':'var(--red-d)';
     const absB=Math.abs(bal);
     const balStr=(bal<0?'−':'')+'€'+(absB>=10000?(absB/1000).toFixed(0)+'k':absB>=1000?(absB/1000).toFixed(1)+'k':absB.toFixed(0));
@@ -1572,7 +1747,6 @@ function renderCalView(){
   html+='</div>';
   grid.innerHTML=html;
 
-  // Auto-select today if current month
   if(!calViewSelected&&calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()){
     calViewSelected=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   }
@@ -1845,6 +2019,7 @@ function sv(){
   S.payday=document.getElementById('set-pd').value;
   const buf=parseInt(document.getElementById('set-buffer').value);
   S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
+  S.monthlyBudget=parseCur(document.getElementById('set-budget').value)||0;
   persist();render();
 }
 function exportData(){
@@ -1884,6 +2059,7 @@ function importData(event){
       });
       document.getElementById('set-pd').value=S.payday||'last';
   const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const bdgEl=document.getElementById('set-budget');if(bdgEl&&S.monthlyBudget)bdgEl.value=S.monthlyBudget.toFixed(2).replace('.',',');
       render();
       showToast('✅ Backup restored successfully!',3000);
     }catch(err){
@@ -1908,12 +2084,18 @@ function render(){
   renderGoalsHome();
 
   const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
-  const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const res=billsEur+sav;
+  const{total:billsEur}=billsBefore();
+  const sav=S.savingsTarget||0;
   const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
-  const rawSafe=Math.max(0,bal-res);
-  // Apply buffer: hold back bufferPct of the raw safe amount as a cushion
-  const safe=Math.max(0,rawSafe*(1-bufferPct));
-  const bufferAmt=rawSafe-safe;
+  // What's locked: bills due before payday + monthly savings target
+  const locked=billsEur+sav;
+  // What's left after locking away obligations
+  const spendable=Math.max(0,bal-locked);
+  // Buffer: % of spendable held back as extra cushion
+  const bufferAmt=parseFloat((spendable*bufferPct).toFixed(2));
+  // Safe to spend = what's left after buffer
+  const safe=Math.max(0,parseFloat((spendable-bufferAmt).toFixed(2)));
+  const res=locked; // alias for compat
   const dl=daysUntil(getNextPayday());const pd=getNextPayday();
   const{current:streak,best}=getStreak();
   document.getElementById('hdr-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
@@ -1974,11 +2156,99 @@ function render(){
   for(let i=6;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');days7.push(S.streakData?.[ds]===true)}
   const streakMsg=streak===0?'Start your streak — stay under your daily spending limit today!':streak<7?`${streak} day${streak!==1?'s':''} in a row! Keep it under your daily limit today.`:streak<30?`🔥 ${streak} days strong! You're building real discipline.`:`🌟 ${streak} days! You're a savings machine!`;
   document.getElementById('streak-zone').innerHTML=`<div class="streak-card"><div class="streak-row"><div class="streak-box"><div class="streak-fire">🔥</div><div class="streak-num">${streak}</div><div class="streak-lbl">Day streak</div></div><div class="streak-box"><div class="streak-fire">🏆</div><div class="streak-num">${best}</div><div class="streak-lbl">Best streak</div></div></div><div class="streak-bar">${days7.map(h=>`<div class="streak-day${h?' hit':''}"></div>`).join('')}</div><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:8px"><span>7 days ago</span><span>Today</span></div><div class="streak-msg">${streakMsg}</div></div>`;
-  // Daily spend limit progress bar
-  const dailyLimit=dl>0?safe/dl:safe;const todaySpend=S.transactions.filter(t=>t.type==='spend'&&t.date===todayStr()).reduce((a,t)=>a+t.amt,0);
+  // ── Smart daily budget calculation ──
+  // Step 1: What have I already spent this cycle?
+  const cycleStart=getCycleStart();
+  const cycleSpend=S.transactions
+    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='spend'&&td>=cycleStart;})
+    .reduce((a,t)=>a+t.amt,0);
+
+  // Step 2: MON calculates suggested daily budget
+  // Total spendable pool = balance - bills before payday - savings target - buffer
+  // This is already 'safe'. Divide by days left to get daily allowance.
+  // But also account for what's already been spent this cycle
+  // Days since cycle start (how many days of spending have passed)
+  const todayD2=new Date();todayD2.setHours(0,0,0,0);
+  const daysSinceCycleStart=Math.max(0,Math.round((todayD2-cycleStart)/86400000));
+  const totalCycleDays=Math.max(1,dl+daysSinceCycleStart); // total days in this cycle
+  // Ideal total spend budget for the whole cycle
+  const totalCycleBudget=safe+cycleSpend; // safe is what's left, cycleSpend is what's used
+  // Ideal per-day = totalCycleBudget / totalCycleDays
+  const idealDailyBudget=totalCycleDays>0?totalCycleBudget/totalCycleDays:0;
+  // Recalculated budget going forward: remaining safe / remaining days
+  // This auto-adjusts downward if you've overspent, upward if you've been frugal
+  const dailyLimit=dl>0?Math.max(0,safe/dl):Math.max(0,safe);
+  // How much spent today
+  const todaySpend=S.transactions.filter(t=>t.type==='spend'&&t.date===todayStr()).reduce((a,t)=>a+t.amt,0);
+  const remainingToday=Math.max(0,dailyLimit-todaySpend);
   const pct=dailyLimit>0?Math.min(100,Math.round(todaySpend/dailyLimit*100)):0;
-  const barColor=pct<50?'var(--green)':pct<80?'var(--warn)':'var(--red)';
-  document.getElementById('spend-limit-zone').innerHTML=`<div class="scard" style="margin-bottom:16px;padding:14px 18px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:var(--text)">Today's spending limit</span><span style="font-size:13px;font-weight:800;color:${barColor}">${fmtE(todaySpend)} / ${fmtE(dailyLimit)}</span></div><div class="spend-limit-bar"><div class="spend-limit-fill" style="width:${pct}%;background:${barColor}"></div></div><div class="spend-limit-label"><span>${pct}% used today</span><span>${fmtE(Math.max(0,dailyLimit-todaySpend))} remaining</span></div></div>`;
+  const barColor=pct<60?'var(--green)':pct<85?'var(--warn)':'var(--red)';
+  // Cycle spend progress vs ideal
+  const cyclePct=totalCycleBudget>0?Math.min(100,Math.round(cycleSpend/totalCycleBudget*100)):0;
+  const cycleBarColor=cyclePct<60?'var(--green)':cyclePct<85?'var(--warn)':'var(--red)';
+  // Message: is user ahead or behind their ideal pace?
+  const idealSpentSoFar=idealDailyBudget*daysSinceCycleStart;
+  const spendingDiff=cycleSpend-idealSpentSoFar; // positive = overspending, negative = under
+  let paceMsg='';
+  if(daysSinceCycleStart>0){
+    if(spendingDiff>5) paceMsg=`⚠️ ${fmtE(spendingDiff)} over ideal pace — daily limit reduced`;
+    else if(spendingDiff<-5) paceMsg=`✅ ${fmtE(Math.abs(spendingDiff))} under pace — you can spend a bit more`;
+    else paceMsg='✓ On track with your budget';
+  }
+  document.getElementById('spend-limit-zone').innerHTML=`<div class="scard" style="margin-bottom:16px;padding:16px 20px">
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">💳 Your spending plan</div>
+
+    <!-- 4-box allocation -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div style="background:var(--red-l);border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:var(--red-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🔴 Bills before payday</div>
+        <div style="font-size:16px;font-weight:800;color:var(--red-d)">${fmtE(billsEur)}</div>
+      </div>
+      <div style="background:var(--gold-l);border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🏦 Savings target</div>
+        <div style="font-size:16px;font-weight:800;color:var(--gold-d)">${fmtE(sav)}</div>
+      </div>
+      <div style="background:var(--warn-l);border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
+        <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferAmt)}</div>
+      </div>
+      <div style="background:var(--green-l);border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:var(--green-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">✅ Spendable pool</div>
+        <div style="font-size:16px;font-weight:800;color:var(--green-d)">${fmtE(safe)}</div>
+      </div>
+    </div>
+
+    <!-- MON's suggested daily budget -->
+    <div style="background:linear-gradient(135deg,var(--purple-l),var(--pink-l));border-radius:var(--rs);padding:14px 16px;margin-bottom:12px;border:.5px solid rgba(155,109,206,.2)">
+      <div style="font-size:11px;font-weight:700;color:var(--purple-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">MON suggests · spend max today</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
+        <div style="font-size:32px;font-weight:800;color:var(--purple-d);letter-spacing:-.5px">${fmtE(dailyLimit)}</div>
+        <div style="font-size:13px;color:var(--purple);font-weight:600">per day</div>
+      </div>
+      <div style="font-size:12px;color:var(--purple-d);opacity:.8;line-height:1.5">
+        ${fmtE(safe)} spendable ÷ ${dl} days to payday
+        ${paceMsg?`<br><strong>${paceMsg}</strong>`:''}
+      </div>
+      ${cycleSpend>0?`<div style="margin-top:8px;font-size:12px;color:var(--purple-d);opacity:.7">This cycle you've spent ${fmtE(cycleSpend)} so far</div>`:''}
+    </div>
+
+    <!-- Today's bar -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:12px;font-weight:700;color:var(--text)">Today: ${fmtE(todaySpend)} spent</div>
+      <div style="font-size:12px;font-weight:700;color:${barColor}">${fmtE(remainingToday)} left today</div>
+    </div>
+    <div class="spend-limit-bar" style="margin-bottom:4px"><div class="spend-limit-fill" style="width:${pct}%;background:${barColor}"></div></div>
+    <div class="spend-limit-label">${pct}% of today's limit</div>
+
+    <!-- Cycle bar -->
+    ${daysSinceCycleStart>0?`<div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">Cycle: ${fmtE(cycleSpend)} of ${fmtE(totalCycleBudget)}</div>
+        <div style="font-size:11px;color:var(--text2)">day ${daysSinceCycleStart} of ${totalCycleDays}</div>
+      </div>
+      <div class="spend-limit-bar"><div class="spend-limit-fill" style="width:${cyclePct}%;background:${cycleBarColor}"></div></div>
+    </div>`:''}
+  </div>`;
   // Daily banner
   const bz=document.getElementById('daily-banner');const ds=now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
   let cls,msg,amt,sub;
@@ -1991,7 +2261,7 @@ function render(){
   const oz=document.getElementById('ovd-zone');const over=overdueP();
   oz.innerHTML=over.length?`<div class="ovd"><div class="ovd-title">⚠️ Due today or overdue</div>${over.map(p=>{const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;return`<div class="ovd-row"><span class="ovd-lbl">${p.name}${p.currency==='PHP'?' ('+fmtP(p.amountPhp)+')':''} — ${fmtE(eur)}</span><button class="ovd-btn" onclick="markPaid(${p.id})">Mark paid</button></div>`}).join('')}</div>`:'';
   // Cycle summary
-  const cycleStart=getCycleStart();const ctxs=S.transactions.filter(t=>new Date(t.date+'T00:00:00')>=cycleStart);
+  const cycleStartRender=getCycleStart();const ctxs=S.transactions.filter(t=>new Date(t.date+'T00:00:00')>=cycleStartRender);
   const cIn=ctxs.filter(t=>t.type!=='spend'&&t.type!=='vault').reduce((a,t)=>a+t.amt,0);
   const cOut=ctxs.filter(t=>t.type==='spend').reduce((a,t)=>a+t.amt,0);const cNet=cIn-cOut;
   document.getElementById('cycle-sum').innerHTML=`<div class="scard"><div class="sc-title">Pay cycle snapshot</div><div class="sc-row"><span class="sc-lbl">Income received</span><span class="sc-val green">+${fmtE(cIn)}</span></div><div class="sc-row"><span class="sc-lbl">Total spent</span><span class="sc-val red">−${fmtE(cOut)}</span></div><div class="sc-row"><span class="sc-lbl">Net this cycle</span><span class="sc-val ${cNet>=0?'green':'red'}">${cNet>=0?'+':''}${fmtE(cNet)}</span></div>${sav>0?`<div class="sc-row"><span class="sc-lbl">Savings target</span><span class="sc-val purp">${fmtE(sav)}</span></div>`:''}</div>`;
@@ -2127,6 +2397,7 @@ window.addEventListener('load',()=>{
   Object.entries(fields).forEach(([id,key])=>{const el=document.getElementById('set-'+id);if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',')});
   document.getElementById('set-pd').value=S.payday||'last';
   const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const bdgEl=document.getElementById('set-budget');if(bdgEl&&S.monthlyBudget)bdgEl.value=S.monthlyBudget.toFixed(2).replace('.',',');
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
   // Restore toggle states
@@ -2157,6 +2428,7 @@ window.addEventListener('load',()=>{
       window.location.reload();
     });
   }
+  checkMonthlyBudgetRollover();
   setupSwipe();
   addSwipeDownToClose('pf-sheet', closePF);
   addSwipeDownToClose('gf-sheet', closeGF);
