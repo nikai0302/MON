@@ -1,0 +1,17 @@
+{
+  "name": "MON",
+  "short_name": "MON",
+  "description": "Personal finance tracker",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#e8d5f5",
+  "theme_color": "#e8d5f5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='115' fill='%239b6dce'/><text y='380' x='50%' text-anchor='middle' font-size='300' font-family='system-ui'>💜</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

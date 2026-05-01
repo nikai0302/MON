@@ -556,8 +556,22 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Last refreshed</div></div><div style="font-size:13px;color:var(--text2)" id="s-rtime">—</div></div>
         <div class="strow" style="cursor:pointer" onclick="refreshRateBtn()"><div class="stlbl"><div class="n" style="color:var(--purple-d)">Refresh rate now</div></div><div id="refresh-icon" style="color:var(--purple-d);font-size:20px;font-weight:700">↻</div></div>
       </div>
-      <div class="slbl">Data</div>
-      <div class="stcard"><div class="strow" style="cursor:pointer" onclick="confReset()"><div class="stlbl"><div class="n" style="color:var(--red-d)">Reset all data</div><div class="s">Clears everything</div></div><div style="color:var(--text3);font-size:20px">›</div></div></div>
+      <div class="slbl">Data & backup</div>
+      <div class="stcard">
+        <div class="strow" style="cursor:pointer" onclick="exportData()">
+          <div class="stlbl"><div class="n" style="color:var(--green-d)">Export backup</div><div class="s">Download all your data as a file</div></div>
+          <div style="font-size:18px">⬇️</div>
+        </div>
+        <div class="strow" style="cursor:pointer" onclick="document.getElementById('import-input').click()">
+          <div class="stlbl"><div class="n" style="color:var(--blue-d)">Import backup</div><div class="s">Restore from a previously exported file</div></div>
+          <div style="font-size:18px">⬆️</div>
+        </div>
+        <div class="strow" style="cursor:pointer" onclick="confReset()">
+          <div class="stlbl"><div class="n" style="color:var(--red-d)">Reset all data</div><div class="s">Clears everything — export first!</div></div>
+          <div style="color:var(--text3);font-size:20px">›</div>
+        </div>
+      </div>
+      <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)"/>
     </div>
   </div>
 </div>
@@ -1296,6 +1310,53 @@ function sv(){
   S.payday=document.getElementById('set-pd').value;
   persist();render();
 }
+function exportData(){
+  const data=JSON.stringify(S,null,2);
+  const blob=new Blob([data],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const date=new Date().toISOString().slice(0,10);
+  a.href=url;
+  a.download='MON-backup-'+date+'.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ Backup downloaded!');
+}
+
+function importData(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const parsed=JSON.parse(e.target.result);
+      // Validate it looks like MON data
+      if(typeof parsed.balance==='undefined'&&typeof parsed.transactions==='undefined'){
+        alert("This does not look like a MON backup file.");return;
+      }
+      if(!confirm('This will replace ALL your current data with the backup. Continue?'))return;
+      S={...DEF,...parsed};
+      persist();
+      // Restore settings inputs
+      const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
+      Object.entries(fields).forEach(([id,key])=>{
+        const el=document.getElementById('set-'+id);
+        if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
+      });
+      document.getElementById('set-pd').value=S.payday||'last';
+      render();
+      showToast('✅ Backup restored successfully!',3000);
+    }catch(err){
+      alert("Failed to read backup file. Make sure it is a valid MON export.");
+    }
+  };
+  reader.readAsText(file);
+  // Reset input so same file can be imported again if needed
+  event.target.value='';
+}
+
 function confReset(){if(confirm('Reset ALL data?')){S={...DEF};persist();['set-bal','set-vault','set-sal','set-svt'].forEach(id=>{document.getElementById(id).value=''});document.getElementById('set-pd').value='last';render()}}
 
 // ══════════════ PAYMENT FORM ══════════════
@@ -1668,6 +1729,10 @@ window.addEventListener('load',()=>{
   fetchRate();
   setInterval(fetchRate,5*60*1000);
   setInterval(render,60*1000);
+  // Register service worker for PWA offline support
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  }
   setupSwipe();
   addSwipeDownToClose('pf-sheet', closePF);
   addSwipeDownToClose('gf-sheet', closeGF);
