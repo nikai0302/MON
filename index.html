@@ -802,6 +802,11 @@ window.addEventListener('popstate',(e)=>{
 
 // ══════════════ BALANCE HIDE ══════════════
 function toggleHide(){S.balanceHidden=!S.balanceHidden;persist();render()}
+function toggleNW(key){
+  if(!S.nwToggles)S.nwToggles={bal:true,vault:true,goals:true};
+  S.nwToggles[key]=!S.nwToggles[key];
+  persist();render();
+}
 
 // ══════════════ CALENDAR ══════════════
 let calState={};
@@ -1241,8 +1246,13 @@ function applyToggles(){
 }
 
 // ══════════════ FORECAST ══════════════
-let forecastMonths=6;
-function setForecastPeriod(m){forecastMonths=m;renderForecast();}
+let forecastCustomDate=null;
+
+function setForecastDate(ds){
+  forecastCustomDate=ds;
+  renderForecast();
+}
+
 function renderForecast(){
   const fz=document.getElementById('forecast-zone');
   if(!fz||S.sectionToggles?.forecast===false)return;
@@ -1251,39 +1261,68 @@ function renderForecast(){
   const vault=S.vault||0;
   const salary=S.salary||0;
   const monthlyBills=S.payments.filter(p=>p.freq==='monthly').reduce((a,p)=>a+(p.currency==='PHP'?p.amountPhp/r2:p.amountEur),0);
-  const monthlyRI=S.recurringIncome.filter(r=>r.freq==='monthly').reduce((a,r)=>a+r.amount,0);
+  const monthlyRI=(S.recurringIncome||[]).filter(r=>r.freq==='monthly').reduce((a,r)=>a+r.amount,0);
   const savingsTarget=S.savingsTarget||0;
   const totalGoalCommit=S.goals.reduce((a,g)=>a+g.monthly,0);
-  // avg spend from last 3 months
   const now=new Date();
   const threeAgo=new Date(now.getFullYear(),now.getMonth()-3,1);
   const recentSpend=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo).reduce((a,t)=>a+t.amt,0);
   const avgSpend=recentSpend/3;
   const netPerMonth=(salary+monthlyRI)-monthlyBills-avgSpend-savingsTarget-totalGoalCommit;
-  const periods=[3,6,12,24];
-  const options=[3,6,12,24];
-  const rows=options.map(mo=>{
-    const projBalance=balance+(netPerMonth*mo);
-    const projVault=vault+(savingsTarget*mo);
-    const projGoals=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*mo),0);
-    const projNW=projBalance+projVault+projGoals;
-    const label=mo===12?'1 year':mo===24?'2 years':mo+' months';
-    const col=projBalance>=0?'green':'red';
+
+  // Preset periods + optional custom date
+  const presets=[{mo:3,label:'3 months'},{mo:6,label:'6 months'},{mo:12,label:'1 year'},{mo:24,label:'2 years'}];
+  let customRow='';
+  if(forecastCustomDate){
+    const target=new Date(forecastCustomDate+'T00:00:00');
+    const moCustom=Math.max(1,Math.round((target-now)/(1000*60*60*24*30.44)));
+    const pb=balance+(netPerMonth*moCustom);
+    const pv=vault+(savingsTarget*moCustom);
+    const pg=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*moCustom),0);
+    const pnw=pb+pv+pg;
+    const lbl=target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+    customRow=`<div class="forecast-row" style="background:rgba(155,109,206,.08);border-radius:8px;padding:4px 8px;margin:4px 0">
+      <span class="forecast-lbl" style="color:var(--purple-d);font-weight:700">📅 ${lbl}</span>
+      <div style="text-align:right">
+        <div class="forecast-val ${pb>=0?'green':'red'}">${fmtE(pnw)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(pb)} · vault ${fmtE(pv)}</div>
+      </div>
+    </div>`;
+  }
+
+  const rows=presets.map(({mo,label})=>{
+    const pb=balance+(netPerMonth*mo);
+    const pv=vault+(savingsTarget*mo);
+    const pg=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*mo),0);
+    const pnw=pb+pv+pg;
     return`<div class="forecast-row">
       <span class="forecast-lbl">${label}</span>
       <div style="text-align:right">
-        <div class="forecast-val ${col}">${fmtE(projNW)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(projBalance)} · vault ${fmtE(projVault)}</div>
+        <div class="forecast-val ${pb>=0?'green':'red'}">${fmtE(pnw)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(pb)} · vault ${fmtE(pv)}</div>
       </div>
     </div>`;
   }).join('');
-  const disclaimer=avgSpend===0?'<div style="font-size:11px;color:var(--text2);margin-top:10px">Log some transactions for more accurate forecasts.</div>':'<div style="font-size:11px;color:var(--text2);margin-top:10px">Based on avg spend of '+fmtE(avgSpend)+'/mo over last 3 months.</div>';
+
+  const disclaimer=avgSpend===0
+    ?'<div style="font-size:11px;color:var(--text2);margin-top:10px">Log some transactions for more accurate forecasts.</div>'
+    :'<div style="font-size:11px;color:var(--text2);margin-top:10px">Based on avg spend of '+fmtE(avgSpend)+'/mo over last 3 months.</div>';
+
+  const dateVal=forecastCustomDate||'';
   fz.innerHTML=`<div class="forecast-card">
     <div class="forecast-title">📈 Financial forecast</div>
     <div style="font-size:12px;color:var(--purple);margin-bottom:12px;line-height:1.4">
       Income ${fmtE(salary+monthlyRI)}/mo · Bills ${fmtE(monthlyBills)}/mo · Net ${fmtE(netPerMonth)}/mo
     </div>
     ${rows}
+    ${customRow}
+    <div style="margin-top:14px;padding-top:12px;border-top:.5px solid rgba(155,109,206,.2)">
+      <div style="font-size:12px;font-weight:700;color:var(--purple-d);margin-bottom:6px">Pick a custom date</div>
+      <input type="date" value="${dateVal}"
+        style="width:100%;padding:11px 14px;border:1.5px solid rgba(155,109,206,.3);border-radius:var(--rs);font-size:15px;background:rgba(255,255,255,.8);color:var(--text);font-family:inherit;outline:none;-webkit-appearance:none"
+        onchange="setForecastDate(this.value)"/>
+      ${forecastCustomDate?'<button onclick="forecastCustomDate=null;renderForecast()" style="margin-top:8px;background:none;border:none;color:var(--text2);font-size:13px;cursor:pointer;font-family:inherit">✕ Clear custom date</button>':''}
+    </div>
     ${disclaimer}
   </div>`;
 }
@@ -1570,7 +1609,43 @@ function render(){
   const netWorth=bal+vault+totalGoalSaved;
   const nwPrev=parseFloat(localStorage.getItem('mon_prev_nw')||'0');
   const nwChange=netWorth-nwPrev;
-  document.getElementById('nw-zone').innerHTML=`<div class="nw-card"><div class="nw-label">Net worth</div><div class="nw-val">${fmtE(netWorth)}</div><div class="nw-change ${nwChange>=0?'up':'dn'}">${nwChange>=0?'▲':'▼'} ${fmtE(Math.abs(nwChange))} since last session</div><div class="nw-breakdown"><div class="nw-item"><div class="nw-item-lbl">Balance</div><div class="nw-item-val">${fmtE(bal)}</div></div><div class="nw-item"><div class="nw-item-lbl">Vault</div><div class="nw-item-val">${fmtE(vault)}</div></div><div class="nw-item"><div class="nw-item-lbl">Goals</div><div class="nw-item-val">${fmtE(totalGoalSaved)}</div></div></div></div>`;
+  // Net worth breakdown toggles
+  if(!S.nwToggles)S.nwToggles={bal:true,vault:true,goals:true};
+  const nwt=S.nwToggles;
+  const nwBalStr=nwt.bal?fmtE(bal):'••••';
+  const nwVaultStr=nwt.vault?fmtE(vault):'••••';
+  const nwGoalsStr=nwt.goals?fmtE(totalGoalSaved):'••••';
+  const nwTotalStr=(!nwt.bal&&!nwt.vault&&!nwt.goals)?'••••':fmtE(netWorth);
+  document.getElementById('nw-zone').innerHTML=`<div class="nw-card">
+    <div class="nw-label">Net worth</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <div class="nw-val">${nwTotalStr}</div>
+    </div>
+    <div class="nw-change ${nwChange>=0?'up':'dn'}" style="margin-bottom:14px">${nwChange>=0?'▲':'▼'} ${fmtE(Math.abs(nwChange))} since last session</div>
+    <div class="nw-breakdown">
+      <div class="nw-item">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <div class="nw-item-lbl">Balance</div>
+          <button onclick="toggleNW('bal')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+        </div>
+        <div class="nw-item-val">${nwBalStr}</div>
+      </div>
+      <div class="nw-item">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <div class="nw-item-lbl">Vault</div>
+          <button onclick="toggleNW('vault')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+        </div>
+        <div class="nw-item-val">${nwVaultStr}</div>
+      </div>
+      <div class="nw-item">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <div class="nw-item-lbl">Goals</div>
+          <button onclick="toggleNW('goals')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+        </div>
+        <div class="nw-item-val">${nwGoalsStr}</div>
+      </div>
+    </div>
+  </div>`;
   localStorage.setItem('mon_prev_nw',netWorth.toFixed(2));
   // Vault
   document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Locked — tap Vault in log to deposit</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="stype('vault');ST('overview')">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
@@ -1848,7 +1923,7 @@ window.addEventListener('load',()=>{
 
 <!-- BILL ONE-OFF EDIT SHEET -->
 <div class="sbg" id="bill-edit-sheet" onclick="closeBillEdit(event)">
-  <div class="sht" onclick="event.stopPropagation()">
+  <div class="sht" onclick="event.stopPropagation()" style="padding-left:max(32px,env(safe-area-inset-left,0px)+32px);padding-right:max(32px,env(safe-area-inset-right,0px)+32px)">
     <div class="sh-hdl"></div>
     <div class="sh-title" id="bes-title">Edit next bill</div>
     <input type="hidden" id="bes-pid"/>
@@ -1860,8 +1935,8 @@ window.addEventListener('load',()=>{
     </div>
     <div class="fld">
       <label>Date of this bill</label>
-      <div id="bes-cal-wrap"></div>
-      <div id="bes-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:6px 2px;min-height:22px"></div>
+      <div id="bes-cal-wrap" style="margin:0 2px"></div>
+      <div id="bes-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:8px 2px;min-height:24px"></div>
       <input id="bes-date-hidden" type="hidden"/>
     </div>
     <div class="sacts">
