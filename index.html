@@ -713,8 +713,14 @@ function toggleHide(){S.balanceHidden=!S.balanceHidden;persist();render()}
 // ══════════════ CALENDAR ══════════════
 let calState={};
 function buildCal(cid,hid,did,initDate,onSel){
-  const init=initDate?new Date(initDate+' 00:00:00'):new Date();
+  const init=initDate?new Date(initDate+'T00:00:00'):new Date();
   calState[cid]={year:init.getFullYear(),month:init.getMonth(),selected:initDate||null,view:'days',yearPage:Math.floor(init.getFullYear()/12)*12,hiddenId:hid,displayId:did,onSel};
+  // If editing (initDate provided), pre-fill the display immediately
+  if(initDate){
+    const h=document.getElementById(hid);const d=document.getElementById(did);
+    if(h)h.value=initDate;
+    if(d){d.textContent='✓ '+fmtDate(initDate);d.style.color='var(--green-d)';}
+  }
   renderCal(cid);
 }
 function renderCal(cid){
@@ -744,7 +750,8 @@ function renderCal(cid){
     let g='';for(let yr=ys;yr<=ye;yr++){const ic=yr===y,it=yr===today.getFullYear();g+=`<button class="cal-yr${ic?' cur-yr':it?' today-yr':''}" onclick="calPickY('${cid}',${yr})">${yr}</button>`}
     body=`<div class="cal-year-grid">${g}</div>`;
   }
-  el.innerHTML=`<div class="cal-wrap"><div class="cal-hdr" style="justify-content:space-between">${hdrNav}</div>${body}<div class="cal-footer"><button class="cal-today-btn" onclick="calToday('${cid}')">Today</button><button class="cal-done-btn" onclick="calSetView('${cid}','days')">Done ✓</button></div></div>`;
+  const doneLabel=cs.view==='days'?(cs.selected?'Confirm ✓':'Pick a date'):cs.view==='months'?'Back to days':'Back to months';
+  el.innerHTML=`<div class="cal-wrap"><div class="cal-hdr" style="justify-content:space-between">${hdrNav}</div>${body}<div class="cal-footer"><button class="cal-today-btn" onclick="calToday('${cid}')">Today</button><button class="cal-done-btn" onclick="calDoneBtn('${cid}')">${doneLabel}</button></div></div>`;
 }
 function calSetView(c,v){calState[c].view=v;renderCal(c)}
 function calNavM(c,d){const cs=calState[c];cs.month+=d;if(cs.month>11){cs.month=0;cs.year++}if(cs.month<0){cs.month=11;cs.year--}renderCal(c)}
@@ -752,8 +759,34 @@ function calNavY(c,d){calState[c].year+=d;renderCal(c)}
 function calNavYP(c,d){calState[c].yearPage+=d;renderCal(c)}
 function calPickM(c,mo){calState[c].month=mo;calState[c].view='days';renderCal(c)}
 function calPickY(c,yr){calState[c].year=yr;calState[c].view='months';renderCal(c)}
-function calSel(cid,ds){const cs=calState[cid];cs.selected=ds;const hid=document.getElementById(cs.hiddenId);const did=document.getElementById(cs.displayId);if(hid)hid.value=ds;if(did)did.textContent=fmtDate(ds);if(cs.onSel)cs.onSel(ds);renderCal(cid)}
-function calToday(c){const cs=calState[c];const t=new Date();cs.year=t.getFullYear();cs.month=t.getMonth();cs.view='days';calSel(c,todayStr())}
+function calSel(cid,ds){
+  const cs=calState[cid];
+  cs.selected=ds; // just highlight — not committed yet
+  renderCal(cid);
+}
+function calToday(c){
+  const cs=calState[c];const t=new Date();
+  cs.year=t.getFullYear();cs.month=t.getMonth();cs.view='days';
+  cs.selected=todayStr();
+  renderCal(c);
+  calDoneBtn(c); // commit immediately
+}
+
+function calDoneBtn(cid){
+  const cs=calState[cid];
+  // Navigate back through views
+  if(cs.view==='years'){calSetView(cid,'months');return;}
+  if(cs.view==='months'){calSetView(cid,'days');return;}
+  // Days view: require a date to be selected
+  if(!cs.selected){showToast('Please tap a day first');return;}
+  // Commit the selected date to the form
+  const hid=document.getElementById(cs.hiddenId);
+  const did=document.getElementById(cs.displayId);
+  if(hid)hid.value=cs.selected;
+  if(did){did.textContent='✓ '+fmtDate(cs.selected);did.style.color='var(--green-d)';}
+  if(cs.onSel)cs.onSel(cs.selected);
+  showToast('📅 Date set: '+fmtDate(cs.selected));
+}
 
 // ══════════════ LOG TRANSACTION ══════════════
 function stype(t){
