@@ -1433,13 +1433,15 @@ function projectForward(days){
     }
   });
 
-  // ── Discretionary spend (only if there's real history) ──
+  // ── Discretionary spend — compute for display only, NOT applied to projection ──
+  // Reason: applying avg daily spend causes huge inaccurate drops for short periods
+  // The forecast shows scheduled events only — salary in, bills out, RI in
   const ninetyAgo=new Date(today.getTime()-90*86400000);
   const discTotal=S.transactions
     .filter(t=>t.type==='spend'&&!t.billId&&new Date(t.date+'T00:00:00')>=ninetyAgo)
     .reduce((a,t)=>a+t.amt,0);
   const dailyDisc=discTotal/90;
-  if(dailyDisc>0)bal=parseFloat((bal-dailyDisc*days).toFixed(2));
+  // NOT subtracted from bal — shown in summary only
 
   // ── Goal savings (one contribution per payday in period) ──
   let pdCount=0;
@@ -1469,7 +1471,7 @@ function projectForward(days){
     if(p.freq==='annual')return a+eur/12;
     return a;
   },0);
-  const discPerMo=dailyDisc*30.44;
+  const discPerMo=dailyDisc*30.44; // for display only
   const savPerMo=(S.savingsTarget||0)+S.goals.reduce((a,g)=>a+(g.monthly||0),0);
 
   return{
@@ -1535,9 +1537,8 @@ function renderForecast(){
 
   const hasSpendData=base.avgSpendPerMo>0;
   const disclaimer=`<div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.5">
-    ${hasSpendData
-      ?'Based on avg spend of '+fmtE(base.avgSpendPerMo)+'/mo over last 3 months.'
-      :'Log transactions so MON can use your real spending in forecasts.'}
+    Forecast shows scheduled events only (salary, bills, recurring income).
+    ${hasSpendData?'Your avg discretionary spend is '+fmtE(base.avgSpendPerMo)+'/mo — actual balance will be lower.':'Log transactions to see your avg spend.'}
   </div>`;
 
   const dateVal=forecastCustomDate||'';
