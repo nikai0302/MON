@@ -340,6 +340,41 @@ select.stinp{cursor:pointer}
 .spend-limit-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:8px}
 .spend-limit-fill{height:100%;border-radius:4px;transition:width .4s ease}
 .spend-limit-label{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:4px}
+
+/* ── ACTION SHEET ── */
+.asheet-bg{display:none;position:fixed;inset:0;background:rgba(45,31,78,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:700;align-items:flex-end}
+.asheet-bg.open{display:flex;animation:fbg .2s ease both}
+.asheet{background:linear-gradient(160deg,#f8f0ff 0%,#fff0f8 60%,#f0f8ff 100%);border-radius:22px 22px 0 0;padding:20px 28px calc(env(safe-area-inset-bottom,34px)+24px);width:100%}
+.asheet-title{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.asheet-desc{font-size:14px;color:var(--text);margin-bottom:18px;line-height:1.5;font-weight:500}
+.asheet-opt{width:100%;padding:15px 18px;border-radius:var(--rs);border:none;font-size:15px;cursor:pointer;font-family:inherit;text-align:left;margin-bottom:10px;display:flex;align-items:center;gap:12px;transition:all .15s}
+.asheet-opt:active{opacity:.85;transform:scale(.98)}
+.asheet-opt.blue{background:var(--blue-l);color:var(--blue-d)}
+.asheet-opt.purple{background:var(--purple-l);color:var(--purple-d)}
+.asheet-opt.green{background:var(--green-l);color:var(--green-d)}
+.asheet-opt.red{background:var(--red-l);color:var(--red-d)}
+.asheet-opt-icon{font-size:22px;flex-shrink:0}
+.asheet-opt-text .t{font-size:15px;font-weight:700}
+.asheet-opt-text .s{font-size:12px;opacity:.7;margin-top:2px}
+.asheet-cancel{width:100%;padding:15px;border-radius:var(--rs);border:1.5px solid var(--border2);background:rgba(255,255,255,.7);font-size:15px;font-weight:600;color:var(--text2);cursor:pointer;font-family:inherit;margin-top:4px}
+
+/* ── TOGGLE STRIP ── */
+.toggle-strip{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.toggle-chip{padding:7px 14px;border-radius:20px;border:1.5px solid var(--border2);font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.6);color:var(--text2);font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px}
+.toggle-chip.on{border-color:var(--purple);color:var(--purple-d);background:var(--purple-l)}
+.toggle-chip:active{transform:scale(.95)}
+
+/* ── FORECAST ── */
+.forecast-card{background:linear-gradient(135deg,var(--purple-l),var(--blue-l));border-radius:var(--r);padding:20px;border:.5px solid rgba(155,109,206,.2);margin-bottom:14px;box-shadow:var(--sh)}
+.forecast-title{font-size:14px;font-weight:800;color:var(--purple-d);margin-bottom:14px}
+.forecast-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:.5px solid rgba(155,109,206,.15)}
+.forecast-row:last-child{border-bottom:none}
+.forecast-lbl{font-size:13px;color:var(--purple)}
+.forecast-val{font-size:15px;font-weight:800;color:var(--purple-d)}
+.forecast-val.green{color:var(--green-d)}.forecast-val.red{color:var(--red-d)}
+.forecast-tabs{display:flex;gap:6px;margin-bottom:14px}
+.ftab{flex:1;padding:9px;border-radius:var(--rs);border:1.5px solid var(--border2);font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.5);color:var(--text2);font-family:inherit;text-align:center;transition:all .15s}
+.ftab.active{background:linear-gradient(135deg,var(--purple),var(--pink));color:#fff;border-color:transparent}
 </style>
 </head>
 <body>
@@ -389,6 +424,14 @@ select.stinp{cursor:pointer}
       <div id="daily-banner"></div>
       <div id="ovd-zone"></div>
       <!-- Net worth snapshot -->
+      <!-- Section visibility toggles -->
+      <div class="toggle-strip" id="home-toggles">
+        <button class="toggle-chip on" id="tog-nw"    onclick="togSection('nw')"    >🌐 Net Worth</button>
+        <button class="toggle-chip on" id="tog-vault" onclick="togSection('vault')" >🏦 Vault</button>
+        <button class="toggle-chip on" id="tog-streak"onclick="togSection('streak')">🔥 Streak</button>
+        <button class="toggle-chip on" id="tog-goals" onclick="togSection('goals-home')">🎯 Goals</button>
+        <button class="toggle-chip on" id="tog-fc"    onclick="togSection('forecast')">📈 Forecast</button>
+      </div>
       <div id="nw-zone"></div>
       <!-- Vault -->
       <div id="vault-zone"></div>
@@ -446,6 +489,8 @@ select.stinp{cursor:pointer}
       <div id="salary-preset-hint" style="display:none;font-size:12px;color:var(--purple-d);font-weight:500;margin:-10px 0 12px 4px;opacity:.8"></div>
       <div class="slbl">This pay cycle</div>
       <div id="cycle-sum"></div>
+      <div id="goals-home-zone"></div>
+      <div id="forecast-zone"></div>
     </div>
 
     <!-- HISTORY -->
@@ -573,26 +618,7 @@ select.stinp{cursor:pointer}
   </div>
 </div>
 
-<!-- RECURRING INCOME ACTION SHEET -->
-<div class="asheet-bg" id="ri-action-sheet" onclick="closeRIAction(event)">
-  <div class="asheet" onclick="event.stopPropagation()">
-    <div class="asheet-title">Edit recurring income</div>
-    <div class="asheet-desc" id="rias-desc">Choose what to change</div>
-    <button class="asheet-opt green" onclick="riActionChoice('log')">
-      <span class="asheet-opt-icon">💰</span>
-      <div class="asheet-opt-text"><div class="t">Log this month's income</div><div class="s">Add to balance now — edit amount if it differs</div></div>
-    </button>
-    <button class="asheet-opt blue" onclick="riActionChoice('next')">
-      <span class="asheet-opt-icon">1️⃣</span>
-      <div class="asheet-opt-text"><div class="t">Change next occurrence only</div><div class="s">One-off amount or date change</div></div>
-    </button>
-    <button class="asheet-opt purple" onclick="riActionChoice('forward')">
-      <span class="asheet-opt-icon">♾️</span>
-      <div class="asheet-opt-text"><div class="t">Update all future occurrences</div><div class="s">Permanently changes the schedule</div></div>
-    </button>
-    <button class="asheet-cancel" onclick="closeRIAction()">Cancel</button>
-  </div>
-</div>
+
 
 <!-- RECURRING INCOME EDIT SHEET -->
 <div class="sbg" id="ri-edit-sheet" onclick="closeRIEdit(event)">
@@ -630,7 +656,7 @@ function startChPin(){pmode='set-new';pb='';udots();document.getElementById('lsu
 const CATS=['🍔 Food','🚗 Transport','🎉 Entertainment','🏥 Health','👕 Shopping','🏠 Home','📱 Subscriptions','✈️ Travel','📚 Education','💸 Other'];
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{}};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true,forecast:true}};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1182,6 +1208,72 @@ function saveRIEdit(){
   persist();document.getElementById('ri-edit-sheet').classList.remove('open');render();
 }
 
+// ══════════════ SECTION TOGGLES ══════════════
+function togSection(key){
+  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true,forecast:true};
+  S.sectionToggles[key]=!S.sectionToggles[key];
+  persist();applyToggles();render();
+}
+function applyToggles(){
+  if(!S.sectionToggles)return;
+  const map={nw:'nw-zone',vault:'vault-zone',streak:'streak-zone','goals-home':'goals-home-zone',forecast:'forecast-zone'};
+  Object.entries(map).forEach(([key,zoneId])=>{
+    const zone=document.getElementById(zoneId);
+    const chip=document.getElementById('tog-'+key);
+    const on=S.sectionToggles[key]!==false;
+    if(zone)zone.style.display=on?'':'none';
+    if(chip){chip.className='toggle-chip'+(on?' on':'');}
+  });
+}
+
+// ══════════════ FORECAST ══════════════
+let forecastMonths=6;
+function setForecastPeriod(m){forecastMonths=m;renderForecast();}
+function renderForecast(){
+  const fz=document.getElementById('forecast-zone');
+  if(!fz||S.sectionToggles?.forecast===false)return;
+  const r2=rate||63.5;
+  const balance=S.balance||0;
+  const vault=S.vault||0;
+  const salary=S.salary||0;
+  const monthlyBills=S.payments.filter(p=>p.freq==='monthly').reduce((a,p)=>a+(p.currency==='PHP'?p.amountPhp/r2:p.amountEur),0);
+  const monthlyRI=S.recurringIncome.filter(r=>r.freq==='monthly').reduce((a,r)=>a+r.amount,0);
+  const savingsTarget=S.savingsTarget||0;
+  const totalGoalCommit=S.goals.reduce((a,g)=>a+g.monthly,0);
+  // avg spend from last 3 months
+  const now=new Date();
+  const threeAgo=new Date(now.getFullYear(),now.getMonth()-3,1);
+  const recentSpend=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo).reduce((a,t)=>a+t.amt,0);
+  const avgSpend=recentSpend/3;
+  const netPerMonth=(salary+monthlyRI)-monthlyBills-avgSpend-savingsTarget-totalGoalCommit;
+  const periods=[3,6,12,24];
+  const options=[3,6,12,24];
+  const rows=options.map(mo=>{
+    const projBalance=balance+(netPerMonth*mo);
+    const projVault=vault+(savingsTarget*mo);
+    const projGoals=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+g.monthly*mo),0);
+    const projNW=projBalance+projVault+projGoals;
+    const label=mo===12?'1 year':mo===24?'2 years':mo+' months';
+    const col=projBalance>=0?'green':'red';
+    return`<div class="forecast-row">
+      <span class="forecast-lbl">${label}</span>
+      <div style="text-align:right">
+        <div class="forecast-val ${col}">${fmtE(projNW)}</div>
+        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(projBalance)} · vault ${fmtE(projVault)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  const disclaimer=avgSpend===0?'<div style="font-size:11px;color:var(--text2);margin-top:10px">Log some transactions for more accurate forecasts.</div>':'<div style="font-size:11px;color:var(--text2);margin-top:10px">Based on avg spend of '+fmtE(avgSpend)+'/mo over last 3 months.</div>';
+  fz.innerHTML=`<div class="forecast-card">
+    <div class="forecast-title">📈 Financial forecast</div>
+    <div style="font-size:12px;color:var(--purple);margin-bottom:12px;line-height:1.4">
+      Income ${fmtE(salary+monthlyRI)}/mo · Bills ${fmtE(monthlyBills)}/mo · Net ${fmtE(netPerMonth)}/mo
+    </div>
+    ${rows}
+    ${disclaimer}
+  </div>`;
+}
+
 // ══════════════ VAULT ══════════════
 function vaultWithdraw(){
   const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
@@ -1397,6 +1489,9 @@ function getCycleStart(){
   return new Date(prevY,prevM,resDay(S.payday,prevY,prevM));
 }
 function render(){
+  applyToggles();
+  renderGoalsHome();
+  renderForecast();
   const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
   const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const res=billsEur+sav;const safe=Math.max(0,bal-res);
   const dl=daysUntil(getNextPayday());const pd=getNextPayday();
@@ -1486,6 +1581,27 @@ function render(){
 return`<div class="lrow ${isP?'php-t':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${editBtn}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
 }
 
+// ══════════════ GOALS HOME ZONE ══════════════
+function renderGoalsHome(){
+  const gz=document.getElementById('goals-home-zone');
+  if(!gz||S.sectionToggles?.['goals-home']===false)return;
+  if(!S.goals||!S.goals.length){gz.innerHTML='';return;}
+  const totalSaved=S.goals.reduce((a,g)=>a+g.saved,0);
+  const totalTarget=S.goals.reduce((a,g)=>a+g.target,0);
+  const pct=totalTarget>0?Math.min(100,Math.round(totalSaved/totalTarget*100)):0;
+  const barColor=pct>=100?'var(--green)':pct>=60?'var(--purple)':pct>=30?'var(--warn)':'var(--pink)';
+  gz.innerHTML=`<div class="scard" style="margin-bottom:14px;cursor:pointer" onclick="ST('goals')">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">🎯 Goals — ${S.goals.length} active</div>
+      <div style="font-size:13px;font-weight:800;color:${barColor}">${pct}%</div>
+    </div>
+    <div class="prog-bar-bg" style="margin-bottom:6px"><div class="prog-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2)">
+      <span>Saved ${fmtE(totalSaved)}</span><span>${fmtE(totalTarget-totalSaved)} to go</span>
+    </div>
+  </div>`;
+}
+
 // ══════════════ INIT ══════════════
 // ══════════════ SHEET SWIPE DOWN TO CLOSE ══════════════
 function addSwipeDownToClose(sheetId, closeFn){
@@ -1546,6 +1662,9 @@ window.addEventListener('load',()=>{
   document.getElementById('set-pd').value=S.payday||'last';
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
+  // Restore toggle states
+  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true,forecast:true};
+  applyToggles();
   fetchRate();
   setInterval(fetchRate,5*60*1000);
   setInterval(render,60*1000);
