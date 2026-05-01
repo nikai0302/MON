@@ -1353,72 +1353,132 @@ function setForecastDate(ds){
   renderForecast();
 }
 
-// Convert any recurring item to a monthly-equivalent amount
-function toMonthlyAmt(item, amtKey){
-  const amt=item[amtKey]||0;
-  if(item.freq==='monthly') return amt;
-  if(item.freq==='weekly')  return amt*52/12;
-  if(item.freq==='annual')  return amt/12;
-  if(item.freq==='once')    return 0; // one-time ignored in forecast
-  return amt;
-}
-
-// Project balance/vault/goals forward by exact number of days
+// Project balance forward by simulating each actual pay/bill event
+// This is accurate: balance only changes when money actually moves
 function projectForward(days){
   const r2=rate||63.5;
-  const balance=S.balance||0;
-  const vault=S.vault||0;
-  const months=days/30.44; // fractional months
+  let balance=S.balance||0;
+  let vault=S.vault||0;
 
-  // ── Income sources per month ──
-  const salaryPerMo=S.salary||0;
-  // All recurring income (salary + RI treated equally as income)
-  const riPerMo=(S.recurringIncome||[]).reduce((a,r)=>a+toMonthlyAmt(r,'amount'),0);
-  const totalIncomePerMo=salaryPerMo+riPerMo;
+  const now=new Date();now.setHours(0,0,0,0);
+  const end=new Date(now.getTime()+days*86400000);
 
-  // ── Bills per month (all frequencies, skip expired) ──
-  const billsPerMo=S.payments
-    .filter(p=>!isPaymentExpired(p))
-    .reduce((a,p)=>{
-      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
-      return a+toMonthlyAmt(p,p.currency==='PHP'?'amountPhp':'amountEur')*(p.currency==='PHP'?1/r2:1);
-    },0);
-
-  // ── Average actual spend per month (last 3 months, exclude transfers to vault) ──
-  const now=new Date();
-  const threeAgo=new Date(now.getFullYear(),now.getMonth()-3,1);
+  // ── Average daily discretionary spend (from real history) ──
+  const ninetyAgo=new Date(now.getTime()-90*86400000);
   const recentSpend=S.transactions
-    .filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo)
+    .filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=ninetyAgo)
     .reduce((a,t)=>a+t.amt,0);
-  const avgSpendPerMo=recentSpend/3;
+  // Daily average spend only — bills are handled separately
+  const avgDailySpend=recentSpend>0?recentSpend/90:0;
 
-  // ── Savings per month ──
+  // ── Deduct daily discretionary spend over the period ──
+  balance-=avgDailySpend*days;
+
+  // ── Simulate salary paydays in the period ──
+  const salaryAmt=S.salary||0;
+  if(salaryAmt>0){
+    let checkDate=new Date(now);
+    while(checkDate<=end){
+      const y=checkDate.getFullYear(),m=checkDate.getMonth();
+      const pdDay=resDay(S.payday,y,m);
+      const pdDate=new Date(y,m,pdDay);
+      if(pdDate>now&&pdDate<=end){
+        balance+=salaryAmt;
+        vault+=(S.savingsTarget||0); // savings target moves to vault on payday
+        balance-=(S.savingsTarget||0);
+      }
+      checkDate.setMonth(checkDate.getMonth()+1);
+      if(checkDate.getMonth()===now.getMonth()&&checkDate.getFullYear()===now.getFullYear())break;
+    }
+  }
+
+  // ── Simulate recurring income in the period ──
+  (S.recurringIncome||[]).forEach(ri=>{
+    if(ri.freq==='once'){
+      const d=new Date(ri.date+'T00:00:00');
+      if(d>now&&d<=end)balance+=ri.amount;
+      return;
+    }
+    const base=new Date(ri.date+'T00:00:00');
+    let step;
+    if(ri.freq==='weekly')step=7;
+    else if(ri.freq==='monthly')step=null; // handled specially
+    else if(ri.freq==='annual')step=365;
+
+    if(ri.freq==='monthly'){
+      let check=new Date(now);
+      while(check<=end){
+        const y=check.getFullYear(),m=check.getMonth();
+        const d=new Date(y,m,Math.min(base.getDate(),lastDay(y,m)));
+        if(d>now&&d<=end)balance+=ri.amount;
+        check.setMonth(check.getMonth()+1);
+      }
+    } else if(step){
+      let d=new Date(base);
+      while(d<=now)d.setDate(d.getDate()+step);
+      while(d<=end){balance+=ri.amount;d.setDate(d.getDate()+step);}
+    }
+  });
+
+  // ── Simulate scheduled bills in the period ──
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+    if(p.freq==='once'){
+      const d=new Date(p.dueDate+'T00:00:00');
+      if(d>now&&d<=end)balance-=eur;
+      return;
+    }
+    const base=new Date(p.dueDate+'T00:00:00');
+
+    if(p.freq==='monthly'){
+      let check=new Date(now);
+      while(check<=end){
+        const y=check.getFullYear(),m=check.getMonth();
+        const d=new Date(y,m,Math.min(base.getDate(),lastDay(y,m)));
+        if(d>now&&d<=end)balance-=eur;
+        check.setMonth(check.getMonth()+1);
+      }
+    } else if(p.freq==='weekly'){
+      let d=new Date(base);
+      while(d<=now)d.setDate(d.getDate()+7);
+      while(d<=end){balance-=eur;d.setDate(d.getDate()+7);}
+    } else if(p.freq==='annual'){
+      let d=new Date(now.getFullYear(),base.getMonth(),base.getDate());
+      if(d<=now)d=new Date(now.getFullYear()+1,base.getMonth(),base.getDate());
+      if(d<=end)balance-=eur;
+    }
+  });
+
+  // ── Goal savings ──
+  const projGoalSaved=S.goals.reduce((a,g)=>{
+    // Count how many monthly goal contributions fall in the period
+    let count=0;let check=new Date(now);
+    while(check<=end){check.setMonth(check.getMonth()+1);if(check<=end)count++;}
+    return a+Math.min(g.target,g.saved+(g.monthly||0)*count);
+  },0);
+
+  // ── Summary stats for display ──
+  const totalIncomePerMo=(S.salary||0)+(S.recurringIncome||[]).reduce((a,r)=>{
+    if(r.freq==='monthly')return a+r.amount;
+    if(r.freq==='weekly')return a+r.amount*52/12;
+    if(r.freq==='annual')return a+r.amount/12;
+    return a;
+  },0);
+  const billsPerMo=S.payments.filter(p=>!isPaymentExpired(p)).reduce((a,p)=>{
+    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+    if(p.freq==='monthly')return a+eur;
+    if(p.freq==='weekly')return a+eur*52/12;
+    if(p.freq==='annual')return a+eur/12;
+    return a;
+  },0);
+  const avgSpendPerMo=avgDailySpend*30.44;
   const savingsPerMo=(S.savingsTarget||0)+S.goals.reduce((a,g)=>a+(g.monthly||0),0);
+  const netBalancePerMo=totalIncomePerMo-billsPerMo-avgSpendPerMo-savingsPerMo;
 
-  // ── Net cash flow per month ──
-  // Income comes in, bills go out, avg discretionary spend goes out, savings move to vault
-  const cashInPerMo=totalIncomePerMo;
-  const cashOutPerMo=billsPerMo+(avgSpendPerMo>0?avgSpendPerMo:0);
-  const toVaultPerMo=savingsPerMo;
-  const netBalancePerMo=cashInPerMo-cashOutPerMo-toVaultPerMo;
-
-  // Project
-  const projBalance=balance+(netBalancePerMo*months);
-  const projVault=vault+(toVaultPerMo*months);
-  const projGoalSaved=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+(g.monthly||0)*months),0);
-  const projNW=projBalance+projVault+projGoalSaved;
-
-  return {
-    balance:projBalance,
-    vault:projVault,
-    goals:projGoalSaved,
-    nw:projNW,
-    incomePerMo:totalIncomePerMo,
-    billsPerMo,
-    avgSpendPerMo,
-    savingsPerMo,
-    netBalancePerMo,
-    months
+  return{
+    balance,vault,goals:projGoalSaved,nw:balance+vault+projGoalSaved,
+    incomePerMo:totalIncomePerMo,billsPerMo,avgSpendPerMo,
+    savingsPerMo,netBalancePerMo,days
   };
 }
 
