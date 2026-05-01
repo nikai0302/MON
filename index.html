@@ -543,11 +543,20 @@ select.stinp{cursor:pointer}
 
     <!-- CALENDAR -->
     <div id="tab-calendar" class="tab">
-      <div class="slbl">Daily balance view</div>
-      <div id="cal-month-nav" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <!-- Month nav -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <button onclick="calViewNav(-1)" style="background:var(--purple-l);border:none;border-radius:var(--rs);padding:8px 16px;font-size:18px;color:var(--purple-d);cursor:pointer;font-weight:700">‹</button>
-        <div id="cal-month-label" style="font-size:16px;font-weight:800;color:var(--text)"></div>
+        <button onclick="calPickMonth()" id="cal-month-label" style="font-size:16px;font-weight:800;color:var(--text);background:none;border:none;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px"></button>
         <button onclick="calViewNav(1)" style="background:var(--purple-l);border:none;border-radius:var(--rs);padding:8px 16px;font-size:18px;color:var(--purple-d);cursor:pointer;font-weight:700">›</button>
+      </div>
+      <!-- Month picker (hidden by default) -->
+      <div id="cal-month-picker" style="display:none;background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);padding:14px;margin-bottom:12px;box-shadow:var(--sh)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <button onclick="calPickerYear(-1)" style="background:var(--purple-l);border:none;border-radius:var(--rx);padding:4px 12px;font-size:16px;color:var(--purple-d);cursor:pointer">‹</button>
+          <div id="cal-picker-year" style="font-size:15px;font-weight:800;color:var(--text)"></div>
+          <button onclick="calPickerYear(1)" style="background:var(--purple-l);border:none;border-radius:var(--rx);padding:4px 12px;font-size:16px;color:var(--purple-d);cursor:pointer">›</button>
+        </div>
+        <div id="cal-picker-months" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
       </div>
       <!-- Month grid -->
       <div id="cal-view-grid" style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);overflow:hidden;margin-bottom:14px;box-shadow:var(--sh)"></div>
@@ -1422,7 +1431,7 @@ function getEventsOnDate(ds){
   (S.recurringIncome||[]).forEach(ri=>{
     const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
     if(occursOnDate(base,target,ri.freq))
-      events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true});
+      events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true,riId:ri.id});
   });
 
   // Scheduled bills — only from their start date (dueDate) onwards
@@ -1433,7 +1442,7 @@ function getEventsOnDate(ds){
       events.push({type:'bill',name:p.name,amt:eur,
         icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
         sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
-        scheduled:true,positive:false});
+        scheduled:true,positive:false,paymentId:p.id});
   });
 
   return events;
@@ -1475,23 +1484,62 @@ function getBalanceOnDate(ds){
   return parseFloat(bal.toFixed(2));
 }
 
+// Month picker state
+let calPickerYearVal=new Date().getFullYear();
+
+function calPickMonth(){
+  const mp=document.getElementById('cal-month-picker');
+  if(!mp)return;
+  calPickerYearVal=calViewYear;
+  const showing=mp.style.display!=='none';
+  mp.style.display=showing?'none':'';
+  if(!showing)renderCalMonthPicker();
+}
+
+function renderCalMonthPicker(){
+  const MNS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const py=document.getElementById('cal-picker-year');
+  if(py)py.textContent=calPickerYearVal;
+  const pm=document.getElementById('cal-picker-months');
+  if(!pm)return;
+  pm.innerHTML=MNS.map((mn,i)=>{
+    const isCur=i===calViewMonth&&calPickerYearVal===calViewYear;
+    return`<button onclick="calPickerSelect(${i})"
+      style="padding:8px 4px;border-radius:var(--rs);border:none;font-size:13px;font-weight:${isCur?800:500};
+      cursor:pointer;font-family:inherit;background:${isCur?'linear-gradient(135deg,var(--purple),var(--pink))':'var(--purple-l)'};
+      color:${isCur?'#fff':'var(--purple-d)'}">${mn}</button>`;
+  }).join('');
+}
+
+function calPickerYear(dir){
+  calPickerYearVal+=dir;
+  renderCalMonthPicker();
+}
+
+function calPickerSelect(m){
+  calViewMonth=m;
+  calViewYear=calPickerYearVal;
+  calViewSelected=null;
+  document.getElementById('cal-month-picker').style.display='none';
+  renderCalView();
+}
+
 function renderCalView(){
   const MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const lbl=document.getElementById('cal-month-label');
-  if(lbl)lbl.textContent=MN[calViewMonth]+' '+calViewYear;
+  if(lbl)lbl.innerHTML=MN[calViewMonth]+' '+calViewYear+' <span style="font-size:12px;opacity:.6">▾</span>';
   const grid=document.getElementById('cal-view-grid');
   if(!grid)return;
   const today=new Date();today.setHours(0,0,0,0);
   const firstDay=new Date(calViewYear,calViewMonth,1).getDay();
   const daysInMonth=lastDay(calViewYear,calViewMonth);
-  const DAYS=['M','T','W','T','F','S','S'];
-  // Adjust firstDay: Mon-based (0=Mon)
-  const fd=(firstDay+6)%7; // convert Sun=0 to Mon=0
+  const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
+  const fd=(firstDay+6)%7; // Mon-based
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
   DAYS.forEach(d=>{html+=`<div class="cv-day-hdr">${d}</div>`;});
   html+='</div><div style="display:grid;grid-template-columns:repeat(7,1fr)">';
-  for(let i=0;i<fd;i++) html+=`<div class="cv-day" style="cursor:default"></div>`;
+  for(let i=0;i<fd;i++) html+=`<div class="cv-day" style="cursor:default;min-height:68px"></div>`;
 
   for(let d=1;d<=daysInMonth;d++){
     const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
@@ -1502,21 +1550,20 @@ function renderCalView(){
     const isToday=new Date(calViewYear,calViewMonth,d).getTime()===today.getTime();
     const isSel=calViewSelected===ds;
     const isPast=new Date(calViewYear,calViewMonth,d)<today;
+    // Use cumulative balance including vault+goals = net worth
     const bal=getBalanceOnDate(ds);
+    const vaultOnDate=S.vault||0; // vault is stable unless deposits made
+    const goalsSaved=S.goals.reduce((a,g)=>a+g.saved,0);
+    const nw=bal+vaultOnDate+goalsSaved;
     const balColor=bal>=0?'var(--green-d)':'var(--red-d)';
-
-    // Format balance compactly
     const absB=Math.abs(bal);
-    const balStr=(bal<0?'−':'')+'€'+(absB>=1000?(absB/1000).toFixed(1)+'k':absB.toFixed(0));
-
+    const balStr=(bal<0?'−':'')+'€'+(absB>=10000?(absB/1000).toFixed(0)+'k':absB>=1000?(absB/1000).toFixed(1)+'k':absB.toFixed(0));
     const dots=[
       hasInc?'<div class="cv-dot cv-dot-inc"></div>':'',
       hasBill?'<div class="cv-dot cv-dot-bill"></div>':'',
       hasLogged&&!hasBill&&!hasInc?'<div class="cv-dot" style="background:var(--text3)"></div>':''
     ].join('');
-
-    html+=`<div class="cv-day${isToday?' today-cell':''}${isSel?' selected-cell':''}${isPast&&!isToday?' past-day':''}"
-      onclick="calViewSelectDay('${ds}')">
+    html+=`<div class="cv-day${isToday?' today-cell':''}${isSel?' selected-cell':''}${isPast&&!isToday?' past-day':''}" onclick="calViewSelectDay('${ds}')">
       <div class="cv-day-num">${d}</div>
       <div class="cv-day-bal" style="color:${isPast&&!isToday?'var(--text3)':balColor}">${balStr}</div>
       <div class="cv-day-dot">${dots}</div>
@@ -1525,24 +1572,22 @@ function renderCalView(){
   html+='</div>';
   grid.innerHTML=html;
 
-  // Auto-select today if in current month, else first day
-  if(!calViewSelected){
-    if(calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()){
-      calViewSelected=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-    }
+  // Auto-select today if current month
+  if(!calViewSelected&&calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()){
+    calViewSelected=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
   }
   if(calViewSelected) calViewShowDetail(calViewSelected);
+  else{const dd=document.getElementById('cal-day-detail');if(dd)dd.innerHTML='';}
 }
 
 function calViewSelectDay(ds){
   calViewSelected=ds;
-  // Re-render just the grid highlight + detail without full rebuild
+  // Update highlight without full re-render
   document.querySelectorAll('.cv-day').forEach(el=>el.classList.remove('selected-cell'));
-  const allDays=document.querySelectorAll('.cv-day');
-  const y=calViewYear,m=calViewMonth;
-  const firstDay=new Date(y,m,1).getDay();
-  const idx=parseInt(ds.slice(8))-1+firstDay;
-  if(allDays[idx])allDays[idx].classList.add('selected-cell');
+  const fd=(new Date(calViewYear,calViewMonth,1).getDay()+6)%7;
+  const dayNum=parseInt(ds.slice(8));
+  const allDays=document.querySelectorAll('#cal-view-grid .cv-day');
+  if(allDays[fd+dayNum-1])allDays[fd+dayNum-1].classList.add('selected-cell');
   calViewShowDetail(ds);
 }
 
@@ -1557,44 +1602,80 @@ function calViewShowDetail(ds){
   const isToday=target.getTime()===today.getTime();
   const isFuture=target>today;
 
+  // Net worth = balance on that day + current vault + current goal savings
+  const vlt=S.vault||0;
+  const goalsSaved=S.goals.reduce((a,g)=>a+g.saved,0);
+  const nw=bal+vlt+goalsSaved;
+
   const incomes=evs.filter(e=>e.positive&&!e.isDeduction);
   const bills=evs.filter(e=>e.type==='bill');
-  const other=evs.filter(e=>!e.positive&&e.type!=='bill'&&!e.isDeduction);
   const savings=evs.filter(e=>e.isDeduction);
-  const allOut=[...bills,...savings,...other];
+  const other=evs.filter(e=>!e.positive&&e.type!=='bill'&&!e.isDeduction&&!e.logged);
+  const logged=evs.filter(e=>e.logged);
   const totalIn=incomes.reduce((a,e)=>a+e.amt,0);
-  const totalOut=allOut.reduce((a,e)=>a+e.amt,0);
+  const totalOut=[...bills,...savings,...other].reduce((a,e)=>a+e.amt,0);
+
+  // Edit button for scheduled events (redirects to Bills/RI edit)
+  const makeEditBtn=(ev)=>{
+    if(!ev.scheduled)return '';
+    if(ev.type==='bill'&&ev.paymentId)
+      return`<button class="redit" onclick="openBillAction(${ev.paymentId});calViewSelected='${ds}'" style="margin-left:6px">edit</button>`;
+    if((ev.type==='income'||ev.type==='salary')&&ev.riId)
+      return`<button class="redit" onclick="openRIAction(${ev.riId})" style="margin-left:6px">edit</button>`;
+    if(ev.type==='salary')
+      return`<button class="redit" onclick="ST('settings')" style="margin-left:6px">edit</button>`;
+    return '';
+  };
 
   const makeRow=(ev)=>{
     const isInc=ev.positive&&!ev.isDeduction;
-    const col=isInc?'var(--green-d)':ev.type==='savings'?'var(--gold-d)':'var(--red-d)';
-    const bg=isInc?'var(--green-l)':ev.type==='savings'?'var(--gold-l)':'var(--red-l)';
+    const isSav=ev.isDeduction;
+    const col=isInc?'var(--green-d)':isSav?'var(--gold-d)':'var(--red-d)';
+    const bg=isInc?'var(--green-l)':isSav?'var(--gold-l)':'var(--red-l)';
     const sign=isInc?'+':'−';
     return`<div class="cv-event-row">
       <div class="cv-event-icon" style="background:${bg}">${ev.icon}</div>
       <div style="flex:1;min-width:0">
-        <div class="cv-event-name">${ev.name}</div>
-        ${ev.sub?`<div class="cv-event-sub">${ev.sub}</div>`:''}
-        <div class="cv-event-sub" style="color:var(--text3)">${ev.scheduled?'scheduled':ev.logged?'logged':''}</div>
+        <div class="cv-event-name">${ev.name}${ev.sub?'<br><span style="font-size:11px;color:var(--text2)">'+ev.sub+'</span>':''}</div>
+        <div style="font-size:11px;color:var(--text3)">${ev.scheduled?'📅 scheduled':ev.logged?'✓ logged':''}</div>
       </div>
-      <div style="font-size:15px;font-weight:800;color:${col};white-space:nowrap;margin-left:10px">${sign}${fmtE(ev.amt)}</div>
+      <div style="display:flex;align-items:center">
+        <div style="font-size:15px;font-weight:800;color:${col};white-space:nowrap">${sign}${fmtE(ev.amt)}</div>
+        ${makeEditBtn(ev)}
+      </div>
     </div>`;
   };
 
-  const noEvHTML=`<div style="padding:14px 0;text-align:center;font-size:13px;color:var(--text2)">No events — balance carries from previous day</div>`;
+  const noEvHTML=`<div style="padding:16px 0;text-align:center;font-size:13px;color:var(--text2);line-height:1.5">
+    No events this day<br><span style="font-size:11px">Balance carries forward from previous day</span></div>`;
 
   detail.innerHTML=`<div class="cv-detail-card">
-    <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px">${dayLabel}</div>
-    <div class="cv-detail-bal ${bal>=0?'pos':'neg'}">${fmtE(bal)}</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:${evs.length?'14px':'0'}">
-      ${isToday?'Current balance':isFuture?'Projected after scheduled events':'Actual balance on this date'}
-      ${totalIn>0||totalOut>0?` · <span style="color:var(--green-d)">+${fmtE(totalIn)}</span> <span style="color:var(--red-d)">−${fmtE(totalOut)}</span>`:''}
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px">${dayLabel}${isToday?' 📍':isFuture?' 🔮':''}</div>
+
+    <!-- Balance & NW -->
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:2px">BALANCE</div>
+        <div class="cv-detail-bal ${bal>=0?'pos':'neg'}" style="font-size:26px;margin-bottom:0">${fmtE(bal)}</div>
+        <div style="font-size:11px;color:var(--text2)">${isToday?'today':isFuture?'projected':'on this date'}</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:linear-gradient(135deg,var(--purple-l),var(--blue-l));border-radius:var(--rs);padding:10px 12px">
+        <div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:2px">NET WORTH</div>
+        <div style="font-size:22px;font-weight:800;color:var(--purple-d);letter-spacing:-.5px">${fmtE(nw)}</div>
+        <div style="font-size:11px;color:var(--purple)">incl. vault ${fmtE(vlt)} + goals ${fmtE(goalsSaved)}</div>
+      </div>
     </div>
+
+    ${totalIn>0||totalOut>0?`<div style="display:flex;gap:8px;margin-bottom:12px;font-size:13px">
+      ${totalIn>0?`<div style="background:var(--green-l);color:var(--green-d);border-radius:var(--rx);padding:5px 10px;font-weight:700">+${fmtE(totalIn)} in</div>`:''}
+      ${totalOut>0?`<div style="background:var(--red-l);color:var(--red-d);border-radius:var(--rx);padding:5px 10px;font-weight:700">−${fmtE(totalOut)} out</div>`:''}
+    </div>`:''}
+
     ${evs.length===0?noEvHTML:''}
-    ${incomes.length>0?`<div style="font-size:11px;font-weight:700;color:var(--green-d);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Income</div>${incomes.map(makeRow).join('')}`:''}
-    ${bills.length>0?`<div style="font-size:11px;font-weight:700;color:var(--red-d);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">Bills due</div>${bills.map(makeRow).join('')}`:''}
-    ${savings.length>0?`<div style="font-size:11px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">Savings</div>${savings.map(makeRow).join('')}`:''}
-    ${other.length>0?`<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">Transactions</div>${other.map(makeRow).join('')}`:''}
+    ${incomes.length>0?`<div style="font-size:11px;font-weight:700;color:var(--green-d);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">💚 Income</div>${incomes.map(makeRow).join('')}`:''}
+    ${bills.length>0?`<div style="font-size:11px;font-weight:700;color:var(--red-d);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">🔴 Bills due</div>${bills.map(makeRow).join('')}`:''}
+    ${savings.length>0?`<div style="font-size:11px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">🏦 Savings</div>${savings.map(makeRow).join('')}`:''}
+    ${logged.length>0?`<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 4px">✓ Logged</div>${logged.map(makeRow).join('')}`:''}
   </div>`;
 }
 
