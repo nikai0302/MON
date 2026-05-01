@@ -941,14 +941,8 @@ window.addEventListener('popstate',(e)=>{
 // ══════════════ BALANCE HIDE ══════════════
 function toggleHide(){S.balanceHidden=!S.balanceHidden;persist();render()}
 function toggleNW(key){
-  if(!S.nwToggles)S.nwToggles={bal:true,vault:true,goals:true};
-  if(key==='all'){
-    // If any is visible, hide all; if all hidden, show all
-    const anyVisible=S.nwToggles.bal||S.nwToggles.vault||S.nwToggles.goals;
-    S.nwToggles={bal:!anyVisible,vault:!anyVisible,goals:!anyVisible};
-  } else {
-    S.nwToggles[key]=!S.nwToggles[key];
-  }
+  if(!S.nwToggles)S.nwToggles={nw:true,bal:true,vault:true,goals:true};
+  S.nwToggles[key]=!S.nwToggles[key];
   persist();render();
 }
 
@@ -2109,46 +2103,43 @@ function render(){
   const ms=document.getElementById('m-safe');ms.textContent=fmtE(safe);ms.className='met-val'+(safe===0&&res>0?' red':safe<res*.25&&res>0?' warn':' green');
   // Net worth
   const totalGoalSaved=S.goals.reduce((a,g)=>a+g.saved,0);
-  const netWorth=bal+vault+totalGoalSaved;
+  const netWorth=bal+vault; // net worth = spendable + locked vault
   const nwPrev=parseFloat(localStorage.getItem('mon_prev_nw')||'0');
   const nwChange=netWorth-nwPrev;
-  // Net worth breakdown toggles
-  if(!S.nwToggles)S.nwToggles={bal:true,vault:true,goals:true};
+  // Net worth = balance + vault (goals shown separately below)
+  const netWorthDisplay=bal+vault; // NW is spendable balance + locked vault
+  if(!S.nwToggles)S.nwToggles={nw:true,bal:true,vault:true,goals:true};
   const nwt=S.nwToggles;
+  const nwTotalStr=nwt.nw?fmtE(netWorthDisplay):'••••';
   const nwBalStr=nwt.bal?fmtE(bal):'••••';
   const nwVaultStr=nwt.vault?fmtE(vault):'••••';
   const nwGoalsStr=nwt.goals?fmtE(totalGoalSaved):'••••';
-  // Total hides each hidden component
-  const visibleNW=(nwt.bal?bal:0)+(nwt.vault?vault:0)+(nwt.goals?totalGoalSaved:0);
-  const nwTotalStr=(!nwt.bal&&!nwt.vault&&!nwt.goals)?'••••':fmtE(visibleNW);
   document.getElementById('nw-zone').innerHTML=`<div class="nw-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <div class="nw-label" style="margin-bottom:0">Net worth</div>
-      <button onclick="toggleNW('all')" style="background:none;border:none;cursor:pointer;font-size:18px;padding:2px 4px;color:var(--purple);opacity:.8">${nwt.bal||nwt.vault||nwt.goals?'👁':'🙈'}</button>
-    </div>
+    <div class="nw-label">Net worth</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
       <div class="nw-val">${nwTotalStr}</div>
+      <button onclick="toggleNW('nw')" style="background:none;border:none;cursor:pointer;font-size:20px;padding:2px 6px;color:var(--purple);opacity:.8;line-height:1;margin-bottom:6px">${nwt.nw?'👁':'🙈'}</button>
     </div>
     <div class="nw-change ${nwChange>=0?'up':'dn'}" style="margin-bottom:14px">${nwChange>=0?'▲':'▼'} ${fmtE(Math.abs(nwChange))} since last session</div>
     <div class="nw-breakdown">
       <div class="nw-item">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
           <div class="nw-item-lbl">Balance</div>
-          <button onclick="toggleNW('bal')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+          <button onclick="toggleNW('bal')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">${nwt.bal?'👁':'🙈'}</button>
         </div>
         <div class="nw-item-val">${nwBalStr}</div>
       </div>
       <div class="nw-item">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
           <div class="nw-item-lbl">Vault</div>
-          <button onclick="toggleNW('vault')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+          <button onclick="toggleNW('vault')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">${nwt.vault?'👁':'🙈'}</button>
         </div>
         <div class="nw-item-val">${nwVaultStr}</div>
       </div>
       <div class="nw-item">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <div class="nw-item-lbl">Goals</div>
-          <button onclick="toggleNW('goals')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">👁</button>
+          <div class="nw-item-lbl">Goals saved</div>
+          <button onclick="toggleNW('goals')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;color:var(--purple);opacity:.7">${nwt.goals?'👁':'🙈'}</button>
         </div>
         <div class="nw-item-val">${nwGoalsStr}</div>
       </div>
