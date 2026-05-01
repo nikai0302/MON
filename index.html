@@ -1075,14 +1075,40 @@ function openBillEdit(pid, scope){
     document.getElementById('bes-amount').value=p.amountEur.toFixed(2).replace('.',',');
     document.getElementById('bes-amount-hint').textContent='';
   }
-  // Pre-fill date
+  // Pre-fill due date
   const bd=nextBillDate(p);
   const ds=bd.getFullYear()+'-'+String(bd.getMonth()+1).padStart(2,'0')+'-'+String(bd.getDate()).padStart(2,'0');
   document.getElementById('bes-date-hidden').value=ds;
   document.getElementById('bes-date-display').textContent='';
   document.getElementById('bes-date-display').style.color='var(--purple-d)';
   buildCal('bes-cal-wrap','bes-date-hidden','bes-date-display',ds);
+  // Pre-fill end date (only shown for "all future" scope)
+  const endFld=document.getElementById('bes-enddate-fld');
+  const endDisp=document.getElementById('bes-end-date-display');
+  const endHid=document.getElementById('bes-end-date-hidden');
+  if(endFld){
+    // Show end date field for "all future" edits, hide for "next only"
+    endFld.style.display=scope==='next'?'none':'';
+  }
+  if(scope!=='next'){
+    if(p.endDate){
+      endHid.value=p.endDate;
+      endDisp.textContent='✓ '+fmtDate(p.endDate);
+      endDisp.style.color='var(--green-d)';
+    } else {
+      endHid.value='';
+      endDisp.textContent='No end date — ongoing';
+      endDisp.style.color='var(--text2)';
+    }
+    buildCal('bes-end-cal-wrap','bes-end-date-hidden','bes-end-date-display',p.endDate||null);
+  }
   document.getElementById('bill-edit-sheet').classList.add('open');
+}
+function clearBillEndDate(){
+  document.getElementById('bes-end-date-hidden').value='';
+  const d=document.getElementById('bes-end-date-display');
+  d.textContent='No end date — ongoing';d.style.color='var(--text2)';
+  if(calState['bes-end-cal-wrap']){calState['bes-end-cal-wrap'].selected=null;renderCal('bes-end-cal-wrap');}
 }
 function closeBillEdit(e){
   if(!e||e.target===document.getElementById('bill-edit-sheet'))
@@ -1112,8 +1138,10 @@ function saveBillEdit(){
     p.overrides.push(override);
     showToast('✅ Next bill updated — reverts after');
   } else {
-    // Update permanently
+    // Update permanently including end date
     p.dueDate=newDate;
+    const newEndDate=document.getElementById('bes-end-date-hidden').value||null;
+    p.endDate=newEndDate||undefined;
     if(rawAmt){
       const amt=parseCur(rawAmt);
       if(amt>0){
@@ -1121,7 +1149,7 @@ function saveBillEdit(){
         else{p.amountEur=amt;}
       }
     }
-    showToast('✅ Schedule updated permanently');
+    showToast(newEndDate?'✅ Schedule updated · ends '+fmtShort(newEndDate):'✅ Schedule updated permanently');
   }
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
@@ -2065,6 +2093,13 @@ window.addEventListener('load',()=>{
       <div id="bes-cal-wrap" style="margin:0 2px"></div>
       <div id="bes-date-display" style="font-size:14px;font-weight:600;color:var(--purple-d);padding:8px 2px;min-height:24px"></div>
       <input id="bes-date-hidden" type="hidden"/>
+    </div>
+    <div class="fld" id="bes-enddate-fld">
+      <label>End date <span style="font-weight:400;color:var(--text2)">(optional — leave blank if ongoing)</span></label>
+      <div id="bes-end-cal-wrap" style="margin:0 2px"></div>
+      <div id="bes-end-date-display" style="font-size:14px;font-weight:600;color:var(--text2);padding:8px 2px;min-height:24px">No end date — ongoing</div>
+      <input id="bes-end-date-hidden" type="hidden"/>
+      <button onclick="clearBillEndDate()" style="background:none;border:none;color:var(--text2);font-size:12px;cursor:pointer;padding:4px 0;font-family:inherit">✕ Clear end date</button>
     </div>
     <div class="sacts">
       <button class="bcancel" onclick="closeBillEdit()">Cancel</button>
