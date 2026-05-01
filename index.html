@@ -1683,37 +1683,35 @@ function renderCalView(){
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
   const fd=(firstDay+6)%7;
 
-  // ── Pre-compute balance for every day in this month in ONE pass ──
-  // Get balance at end of the day before this month starts
-  const monthStartDs=(calViewYear)+'-'+String(calViewMonth+1).padStart(2,'0')+'-01';
-  const dayBeforeMonth=new Date(calViewYear,calViewMonth,0); // last day of prev month
-  const dbmDs=dayBeforeMonth.getFullYear()+'-'+String(dayBeforeMonth.getMonth()+1).padStart(2,'0')+'-'+String(dayBeforeMonth.getDate()).padStart(2,'0');
-  let runBal=getBalanceOnDate(dbmDs);
-
-  // Walk day by day through the month, applying events
+  // ── Pre-compute balance for every day in this month ──
   const dayBals={};
+  // Running balance starts fresh from S.balance at today
+  // and walks forward from tomorrow onwards
+  let runBal=parseFloat((S.balance||0).toFixed(2));
+  let futureModeStarted=false;
+
   for(let d=1;d<=daysInMonth;d++){
     const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     const dayDate=new Date(calViewYear,calViewMonth,d);dayDate.setHours(0,0,0,0);
-    // Apply scheduled events for this day (only future or today)
-    if(dayDate>=today){
+
+    if(dayDate<today){
+      // Past: reconstruct from logged transactions
+      dayBals[d]=getBalanceOnDate(ds);
+    } else if(dayDate.getTime()===today.getTime()){
+      // Today: always S.balance exactly
+      dayBals[d]=parseFloat((S.balance||0).toFixed(2));
+      runBal=dayBals[d]; // reset running balance to actual today
+    } else {
+      // Future: walk forward applying scheduled events only
       const evs=getEventsOnDate(ds);
       evs.forEach(ev=>{
-        if(ev.logged)return; // already in S.balance
+        if(ev.logged)return; // logged txns already in S.balance
         if(ev.positive)runBal=parseFloat((runBal+ev.amt).toFixed(2));
         else runBal=parseFloat((runBal-ev.amt).toFixed(2));
       });
-    } else if(dayDate.getTime()===today.getTime()){
-      runBal=parseFloat((S.balance||0).toFixed(2));
-    } else {
-      // Past day — use actual logged transactions
-      runBal=getBalanceOnDate(ds);
+      dayBals[d]=parseFloat(runBal.toFixed(2));
     }
-    dayBals[d]=parseFloat(runBal.toFixed(2));
   }
-  // Correct: set today's balance to actual S.balance
-  const todayDay=today.getFullYear()===calViewYear&&today.getMonth()===calViewMonth?today.getDate():null;
-  if(todayDay) dayBals[todayDay]=parseFloat((S.balance||0).toFixed(2));
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
   DAYS.forEach(d=>{html+=`<div class="cv-day-hdr">${d}</div>`;});
@@ -1999,24 +1997,17 @@ function renderGoals(){
 
 // ══════════════ VAULT ══════════════
 function vaultDeposit(){
-  // Switch to vault type and scroll to log bar smoothly
-  stype('vault');
-  // If not on overview, go there
-  const overviewTab=document.getElementById('tab-overview');
-  if(!overviewTab.classList.contains('active')){
-    ST('overview');
-    setTimeout(()=>{
-      const qbar=document.getElementById('qbar');
-      if(qbar)qbar.scrollIntoView({behavior:'smooth',block:'center'});
-      const amt=document.getElementById('q-amt');
-      if(amt)amt.focus();
-    },300);
-  } else {
-    const qbar=document.getElementById('qbar');
-    if(qbar)qbar.scrollIntoView({behavior:'smooth',block:'center'});
-    const amt=document.getElementById('q-amt');
-    if(amt)setTimeout(()=>amt.focus(),100);
-  }
+  const inp=prompt('Deposit to vault (€) — current: '+fmtE(S.vault||0),'');
+  const amt=parseCur(inp);
+  if(!amt||amt<=0)return;
+  if(amt>(S.balance||0)){showToast('Not enough balance');return;}
+  S.balance=parseFloat(((S.balance||0)-amt).toFixed(2));
+  S.vault=parseFloat(((S.vault||0)+amt).toFixed(2));
+  S.transactions.push({id:Date.now(),type:'vault',desc:'To savings vault',cat:'🏦 Vault',amt,date:todayStr()});
+  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
+  persist();render();
+  showToast('🏦 '+fmtE(amt)+' deposited to vault');
 }
 
 function vaultWithdraw(){
