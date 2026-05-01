@@ -942,7 +942,13 @@ window.addEventListener('popstate',(e)=>{
 function toggleHide(){S.balanceHidden=!S.balanceHidden;persist();render()}
 function toggleNW(key){
   if(!S.nwToggles)S.nwToggles={bal:true,vault:true,goals:true};
-  S.nwToggles[key]=!S.nwToggles[key];
+  if(key==='all'){
+    // If any is visible, hide all; if all hidden, show all
+    const anyVisible=S.nwToggles.bal||S.nwToggles.vault||S.nwToggles.goals;
+    S.nwToggles={bal:!anyVisible,vault:!anyVisible,goals:!anyVisible};
+  } else {
+    S.nwToggles[key]=!S.nwToggles[key];
+  }
   persist();render();
 }
 
@@ -1981,7 +1987,7 @@ function vaultDeposit(){
   if(amt>(S.balance||0)){showToast('Not enough balance');return;}
   S.balance=parseFloat(((S.balance||0)-amt).toFixed(2));
   S.vault=parseFloat(((S.vault||0)+amt).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'vault',desc:'To savings vault',cat:'🏦 Vault',amt,date:todayStr()});
+  S.transactions.push({id:Date.now(),type:'vault',desc:'🏦 Vault deposit',cat:'🏦 Vault',amt,date:todayStr()});
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
   persist();render();
@@ -2002,10 +2008,15 @@ function vaultWithdraw(){
 
 // ══════════════ SETTINGS ══════════════
 function sv(){
-  S.balance=parseCur(document.getElementById('set-bal').value)||0;
-  S.vault=parseCur(document.getElementById('set-vault').value)||0;
-  S.salary=parseCur(document.getElementById('set-sal').value)||0;
-  S.savingsTarget=parseCur(document.getElementById('set-svt').value)||0;
+  // Only update values that have non-empty inputs (don't overwrite programmatic changes)
+  const balVal=parseCur(document.getElementById('set-bal').value);
+  if(!isNaN(balVal)&&balVal>=0)S.balance=balVal;
+  const vaultVal=parseCur(document.getElementById('set-vault').value);
+  if(!isNaN(vaultVal)&&vaultVal>=0)S.vault=vaultVal;
+  const salVal=parseCur(document.getElementById('set-sal').value);
+  if(salVal>0)S.salary=salVal;
+  const svtVal=parseCur(document.getElementById('set-svt').value);
+  if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
   S.payday=document.getElementById('set-pd').value;
   const buf=parseInt(document.getElementById('set-buffer').value);
   S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
@@ -2111,7 +2122,10 @@ function render(){
   const visibleNW=(nwt.bal?bal:0)+(nwt.vault?vault:0)+(nwt.goals?totalGoalSaved:0);
   const nwTotalStr=(!nwt.bal&&!nwt.vault&&!nwt.goals)?'••••':fmtE(visibleNW);
   document.getElementById('nw-zone').innerHTML=`<div class="nw-card">
-    <div class="nw-label">Net worth</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div class="nw-label" style="margin-bottom:0">Net worth</div>
+      <button onclick="toggleNW('all')" style="background:none;border:none;cursor:pointer;font-size:18px;padding:2px 4px;color:var(--purple);opacity:.8">${nwt.bal||nwt.vault||nwt.goals?'👁':'🙈'}</button>
+    </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
       <div class="nw-val">${nwTotalStr}</div>
     </div>
