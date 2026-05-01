@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- MON v202605011053 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -1905,9 +1906,27 @@ window.addEventListener('load',()=>{
   fetchRate();
   setInterval(fetchRate,5*60*1000);
   setInterval(render,60*1000);
-  // Register service worker for PWA offline support
+  // Register service worker — forces update check on every load
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // Check for updates immediately
+      reg.update();
+      // When a new SW is waiting, reload the page to apply it
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if(!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if(newWorker.state === 'activated') {
+            // New version activated — reload to get fresh content
+            window.location.reload();
+          }
+        });
+      });
+    }).catch(()=>{});
+    // Also listen for controller change (SW took over)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
   }
   setupSwipe();
   addSwipeDownToClose('pf-sheet', closePF);
