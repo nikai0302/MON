@@ -415,7 +415,7 @@ select.stinp{cursor:pointer}
     <button class="nb" onclick="ST('history')"><span class="ni">📋</span>History</button>
     <button class="nb" onclick="ST('payments')"><span class="ni">📅</span>Bills</button>
     <button class="nb" onclick="ST('goals')"><span class="ni">🎯</span>Goals</button>
-    <button class="nb" onclick="ST('insights')"><span class="ni">📊</span>Insights</button>
+    <button class="nb" onclick="ST('calendar')"><span class="ni">📅</span>Calendar</button>
     <button class="nb" onclick="ST('settings')"><span class="ni">⚙️</span>Settings</button>
   </div>
   <div id="cnt">
@@ -431,7 +431,6 @@ select.stinp{cursor:pointer}
         <button class="toggle-chip on" id="tog-vault" onclick="togSection('vault')" >🏦 Vault</button>
         <button class="toggle-chip on" id="tog-streak"onclick="togSection('streak')">🔥 Streak</button>
         <button class="toggle-chip on" id="tog-goals" onclick="togSection('goals-home')">🎯 Goals</button>
-        <button class="toggle-chip on" id="tog-fc"    onclick="togSection('forecast')">📈 Forecast</button>
       </div>
       <div id="nw-zone"></div>
       <!-- Vault -->
@@ -491,7 +490,6 @@ select.stinp{cursor:pointer}
       <div class="slbl">This pay cycle</div>
       <div id="cycle-sum"></div>
       <div id="goals-home-zone"></div>
-      <div id="forecast-zone"></div>
     </div>
 
     <!-- HISTORY -->
@@ -519,15 +517,18 @@ select.stinp{cursor:pointer}
       <button class="addbtn" onclick="openGF()">＋ Add savings goal</button>
     </div>
 
-    <!-- INSIGHTS -->
-    <div id="tab-insights" class="tab">
-      <div id="review-zone"></div>
-      <div class="slbl">Spending by category</div>
-      <div id="cat-zone"></div>
-      <div class="slbl">What-if calculator</div>
-      <div id="whatif-zone"></div>
-      <div class="slbl">Monthly trend</div>
-      <div id="trend-zone"></div>
+    <!-- CALENDAR -->
+    <div id="tab-calendar" class="tab">
+      <div class="slbl">Daily balance view</div>
+      <div id="cal-month-nav" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <button onclick="calViewNav(-1)" style="background:var(--purple-l);border:none;border-radius:var(--rs);padding:8px 16px;font-size:18px;color:var(--purple-d);cursor:pointer;font-weight:700">‹</button>
+        <div id="cal-month-label" style="font-size:16px;font-weight:800;color:var(--text)"></div>
+        <button onclick="calViewNav(1)" style="background:var(--purple-l);border:none;border-radius:var(--rs);padding:8px 16px;font-size:18px;color:var(--purple-d);cursor:pointer;font-weight:700">›</button>
+      </div>
+      <!-- Month grid -->
+      <div id="cal-view-grid" style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);overflow:hidden;margin-bottom:14px;box-shadow:var(--sh)"></div>
+      <!-- Selected day detail -->
+      <div id="cal-day-detail"></div>
     </div>
 
     <!-- SETTINGS -->
@@ -720,7 +721,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true,forecast:true},bufferPct:20};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true},bufferPct:20};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -840,9 +841,9 @@ function ST(t,pushState=true){
   document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(e=>e.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
-  ['overview','history','payments','goals','insights','settings'].forEach((n,i)=>{if(n===t)document.querySelectorAll('.nb')[i].classList.add('active')});
+  ['overview','history','payments','goals','calendar','settings'].forEach((n,i)=>{if(n===t)document.querySelectorAll('.nb')[i].classList.add('active')});
   if(t==='goals')renderGoals();
-  if(t==='insights')renderInsights();
+  if(t==='calendar')renderCalView();
   // Push to browser history so back button navigates within app
   if(pushState && t!==currentTab){
     history.pushState({tab:t},'',window.location.pathname+'#'+t);
@@ -1329,13 +1330,13 @@ function saveRIEdit(){
 
 // ══════════════ SECTION TOGGLES ══════════════
 function togSection(key){
-  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true,forecast:true};
+  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
   S.sectionToggles[key]=!S.sectionToggles[key];
   persist();applyToggles();render();
 }
 function applyToggles(){
   if(!S.sectionToggles)return;
-  const map={nw:'nw-zone',vault:'vault-zone',streak:'streak-zone','goals-home':'goals-home-zone',forecast:'forecast-zone'};
+  const map={nw:'nw-zone',vault:'vault-zone',streak:'streak-zone','goals-home':'goals-home-zone'};
   Object.entries(map).forEach(([key,zoneId])=>{
     const zone=document.getElementById(zoneId);
     const chip=document.getElementById('tog-'+key);
@@ -1344,305 +1345,6 @@ function applyToggles(){
     if(chip){chip.className='toggle-chip'+(on?' on':'');}
   });
 }
-
-// ══════════════ FORECAST ══════════════
-let forecastCustomDate=null;
-
-function setForecastDate(ds){
-  forecastCustomDate=ds;
-  renderForecast();
-}
-
-// Project balance forward — event-based: only changes when money actually moves
-function projectForward(days){
-  const r2=rate||63.5;
-  // Always start from ACTUAL balance, no buffer, no adjustments
-  let bal=parseFloat(((S.balance)||0).toFixed(2));
-  let vlt=parseFloat(((S.vault)||0).toFixed(2));
-
-  if(days<=0){
-    const g0=S.goals.reduce((a,g)=>a+g.saved,0);
-    return{balance:bal,vault:vlt,goals:g0,nw:parseFloat((bal+vlt+g0).toFixed(2)),
-      incomePerMo:0,billsPerMo:0,avgSpendPerMo:0,savingsPerMo:0,netBalancePerMo:0,days:0};
-  }
-
-  const today=new Date();today.setHours(0,0,0,0);
-  const endD=new Date(today.getTime()+days*86400000);
-
-  // Helper: get all occurrences of a monthly-based date between today+1 and endD
-  function monthlyDates(dayOfMonth){
-    const dates=[];
-    let y=today.getFullYear(),m=today.getMonth();
-    for(let s=0;s<120;s++){
-      const d=new Date(y,m,Math.min(dayOfMonth,lastDay(y,m)));
-      if(d>endD)break;
-      if(d>today)dates.push(new Date(d));
-      m++;if(m>11){m=0;y++;}
-    }
-    return dates;
-  }
-
-  // ── Salary ──
-  const salAmt=S.salary||0;
-  if(salAmt>0){
-    const pdDay=S.payday==='last'?32:parseInt(S.payday)||32; // 32=last day trick
-    let y=today.getFullYear(),m=today.getMonth();
-    for(let s=0;s<60;s++){
-      const day=S.payday==='last'?lastDay(y,m):Math.min(parseInt(S.payday),lastDay(y,m));
-      const pd=new Date(y,m,day);
-      if(pd>endD)break;
-      if(pd>today){
-        bal=parseFloat((bal+salAmt).toFixed(2));
-        const sv=S.savingsTarget||0;
-        if(sv>0){vlt=parseFloat((vlt+sv).toFixed(2));bal=parseFloat((bal-sv).toFixed(2));}
-      }
-      m++;if(m>11){m=0;y++;}
-    }
-  }
-
-  // ── Recurring income ──
-  (S.recurringIncome||[]).forEach(ri=>{
-    const base=new Date(ri.date+'T00:00:00');
-    if(ri.freq==='once'){if(base>today&&base<=endD)bal=parseFloat((bal+ri.amount).toFixed(2));return;}
-    if(ri.freq==='monthly'){
-      monthlyDates(base.getDate()).forEach(()=>bal=parseFloat((bal+ri.amount).toFixed(2)));
-    } else if(ri.freq==='weekly'){
-      let d=new Date(base);while(d<=today)d.setDate(d.getDate()+7);
-      for(let s=0;d<=endD&&s<500;s++){bal=parseFloat((bal+ri.amount).toFixed(2));d.setDate(d.getDate()+7);}
-    } else if(ri.freq==='annual'){
-      let d=new Date(today.getFullYear(),base.getMonth(),base.getDate());
-      if(d<=today)d=new Date(today.getFullYear()+1,base.getMonth(),base.getDate());
-      if(d<=endD)bal=parseFloat((bal+ri.amount).toFixed(2));
-    }
-  });
-
-  // ── Bills ──
-  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
-    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
-    const base=new Date(p.dueDate+'T00:00:00');
-    if(p.freq==='once'){if(base>today&&base<=endD)bal=parseFloat((bal-eur).toFixed(2));return;}
-    if(p.freq==='monthly'){
-      monthlyDates(base.getDate()).forEach(()=>bal=parseFloat((bal-eur).toFixed(2)));
-    } else if(p.freq==='weekly'){
-      let d=new Date(base);while(d<=today)d.setDate(d.getDate()+7);
-      for(let s=0;d<=endD&&s<500;s++){bal=parseFloat((bal-eur).toFixed(2));d.setDate(d.getDate()+7);}
-    } else if(p.freq==='annual'){
-      let d=new Date(today.getFullYear(),base.getMonth(),base.getDate());
-      if(d<=today)d=new Date(today.getFullYear()+1,base.getMonth(),base.getDate());
-      if(d<=endD)bal=parseFloat((bal-eur).toFixed(2));
-    }
-  });
-
-  // ── Discretionary spend — compute for display only, NOT applied to projection ──
-  // Reason: applying avg daily spend causes huge inaccurate drops for short periods
-  // The forecast shows scheduled events only — salary in, bills out, RI in
-  const ninetyAgo=new Date(today.getTime()-90*86400000);
-  const discTotal=S.transactions
-    .filter(t=>t.type==='spend'&&!t.billId&&new Date(t.date+'T00:00:00')>=ninetyAgo)
-    .reduce((a,t)=>a+t.amt,0);
-  const dailyDisc=discTotal/90;
-  // NOT subtracted from bal — shown in summary only
-
-  // ── Goal savings (one contribution per payday in period) ──
-  let pdCount=0;
-  if(salAmt>0){
-    let y=today.getFullYear(),m=today.getMonth();
-    for(let s=0;s<60;s++){
-      const day=S.payday==='last'?lastDay(y,m):Math.min(parseInt(S.payday),lastDay(y,m));
-      const pd=new Date(y,m,day);
-      if(pd>endD)break;
-      if(pd>today)pdCount++;
-      m++;if(m>11){m=0;y++;}
-    }
-  }
-  const projGoals=S.goals.reduce((a,g)=>a+Math.min(g.target,g.saved+(g.monthly||0)*pdCount),0);
-
-  // ── Monthly summary stats for display ──
-  const totalIncPerMo=(S.salary||0)+(S.recurringIncome||[]).reduce((a,r)=>{
-    if(r.freq==='monthly')return a+r.amount;
-    if(r.freq==='weekly')return a+r.amount*52/12;
-    if(r.freq==='annual')return a+r.amount/12;
-    return a;
-  },0);
-  const billsPerMo=S.payments.filter(p=>!isPaymentExpired(p)).reduce((a,p)=>{
-    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
-    if(p.freq==='monthly')return a+eur;
-    if(p.freq==='weekly')return a+eur*52/12;
-    if(p.freq==='annual')return a+eur/12;
-    return a;
-  },0);
-  const discPerMo=dailyDisc*30.44; // for display only
-  const savPerMo=(S.savingsTarget||0)+S.goals.reduce((a,g)=>a+(g.monthly||0),0);
-
-  return{
-    balance:bal,vault:vlt,goals:projGoals,
-    nw:parseFloat((bal+vlt+projGoals).toFixed(2)),
-    incomePerMo:totalIncPerMo,billsPerMo,
-    avgSpendPerMo:discPerMo,savingsPerMo:savPerMo,
-    netBalancePerMo:parseFloat((totalIncPerMo-billsPerMo-discPerMo-savPerMo).toFixed(2)),
-    days
-  };
-}
-
-
-function renderForecast(){
-  const fz=document.getElementById('forecast-zone');
-  if(!fz||S.sectionToggles?.forecast===false)return;
-
-  const now=new Date();now.setHours(0,0,0,0);
-
-  // Get base stats for summary line
-  const base=projectForward(30);
-
-  // Today row (days=0) to verify starting point
-  const todayProj=projectForward(0);
-
-  // Preset periods
-  const presets=[
-    {days:90, label:'3 months'},
-    {days:180,label:'6 months'},
-    {days:365,label:'1 year'},
-    {days:730,label:'2 years'},
-  ];
-
-  const rows=presets.map(({days,label})=>{
-    const p=projectForward(days);
-    const col=p.balance>=0?'green':'red';
-    return`<div class="forecast-row">
-      <span class="forecast-lbl">${label}</span>
-      <div style="text-align:right">
-        <div class="forecast-val ${col}">${fmtE(p.nw)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(p.balance)} · vault ${fmtE(p.vault)}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Custom date row
-  let customRow='';
-  if(forecastCustomDate){
-    const target=new Date(forecastCustomDate+'T00:00:00');target.setHours(0,0,0,0);
-    const daysUntilTarget=Math.max(0,Math.ceil((target-now)/86400000));
-    const p=projectForward(daysUntilTarget);
-    const lbl=target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-    const col=p.balance>=0?'green':'red';
-    customRow=`<div class="forecast-row" style="background:rgba(155,109,206,.10);border-radius:10px;padding:10px 12px;margin:8px 0">
-      <span class="forecast-lbl" style="color:var(--purple-d);font-weight:800">📅 ${lbl} (${daysUntilTarget}d)</span>
-      <div style="text-align:right">
-        <div class="forecast-val ${col}" style="font-size:18px">${fmtE(p.nw)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(p.balance)} · vault ${fmtE(p.vault)}</div>
-        <div style="font-size:11px;color:var(--text2)">goals saved ${fmtE(p.goals)}</div>
-      </div>
-    </div>`;
-  }
-
-  const hasSpendData=base.avgSpendPerMo>0;
-  const disclaimer=`<div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.5">
-    Forecast shows scheduled events only (salary, bills, recurring income).
-    ${hasSpendData?'Your avg discretionary spend is '+fmtE(base.avgSpendPerMo)+'/mo — actual balance will be lower.':'Log transactions to see your avg spend.'}
-  </div>`;
-
-  const dateVal=forecastCustomDate||'';
-  fz.innerHTML=`<div class="forecast-card">
-    <div class="forecast-title">📈 Financial forecast</div>
-    <div style="font-size:12px;color:var(--purple);margin-bottom:4px;line-height:1.6">
-      <div>Income: <strong>${fmtE(base.incomePerMo)}/mo</strong> (salary + recurring)</div>
-      <div>Bills: <strong>${fmtE(base.billsPerMo)}/mo</strong> · Avg spend: <strong>${fmtE(base.avgSpendPerMo)}/mo</strong></div>
-      <div>To savings: <strong>${fmtE(base.savingsPerMo)}/mo</strong> · Net: <strong style="color:${base.netBalancePerMo>=0?'var(--green-d)':'var(--red-d)'}">${fmtE(base.netBalancePerMo)}/mo</strong></div>
-    </div>
-    <div style="height:.5px;background:rgba(155,109,206,.2);margin:12px 0"></div>
-    <div class="forecast-row" style="background:rgba(255,255,255,.5);border-radius:8px;padding:6px 10px;margin-bottom:4px">
-      <span class="forecast-lbl" style="font-weight:700;color:var(--text)">Today</span>
-      <div style="text-align:right">
-        <div class="forecast-val" style="color:var(--text)">${fmtE(todayProj.nw)}</div>
-        <div style="font-size:11px;color:var(--text2)">balance ${fmtE(todayProj.balance)} · vault ${fmtE(todayProj.vault)}</div>
-      </div>
-    </div>
-    ${rows}
-    ${customRow}
-    <div style="margin-top:14px;padding-top:12px;border-top:.5px solid rgba(155,109,206,.2)">
-      <div style="font-size:12px;font-weight:700;color:var(--purple-d);margin-bottom:8px">📅 Pick a custom date</div>
-      <input type="date" value="${dateVal}"
-        style="width:100%;padding:12px 14px;border:1.5px solid rgba(155,109,206,.3);border-radius:var(--rs);font-size:15px;background:rgba(255,255,255,.85);color:var(--text);font-family:inherit;outline:none;-webkit-appearance:none;-webkit-tap-highlight-color:transparent"
-        onchange="setForecastDate(this.value)"/>
-      ${forecastCustomDate?`<button onclick="forecastCustomDate=null;renderForecast()" style="margin-top:8px;background:none;border:none;color:var(--text2);font-size:13px;cursor:pointer;font-family:inherit">✕ Clear custom date</button>`:''}
-    </div>
-    ${disclaimer}
-  </div>`;
-}
-
-// ══════════════ VAULT ══════════════
-function vaultWithdraw(){
-  const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
-  const inp=prompt('Withdraw from vault (€):\nVault balance: '+fmtE(v),'');
-  const amt=parseCur(inp);if(!amt||amt<=0)return;
-  if(amt>v){alert('Not enough in vault');return}
-  S.vault=parseFloat((v-amt).toFixed(2));S.balance=parseFloat(((S.balance||0)+amt).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'income',desc:'From savings vault',cat:'🏦 Vault',amt,date:todayStr()});
-  const si=document.getElementById('set-vault');if(si)si.value=S.vault.toFixed(2).replace('.',',');
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  persist();render();showToast('🏦 Withdrawn '+fmtE(amt)+' from vault');
-}
-
-// ══════════════ SETTINGS ══════════════
-function sv(){
-  S.balance=parseCur(document.getElementById('set-bal').value)||0;
-  S.vault=parseCur(document.getElementById('set-vault').value)||0;
-  S.salary=parseCur(document.getElementById('set-sal').value)||0;
-  S.savingsTarget=parseCur(document.getElementById('set-svt').value)||0;
-  S.payday=document.getElementById('set-pd').value;
-  const buf=parseInt(document.getElementById('set-buffer').value);
-  S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
-  persist();render();
-}
-function exportData(){
-  const data=JSON.stringify(S,null,2);
-  const blob=new Blob([data],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  const date=new Date().toISOString().slice(0,10);
-  a.href=url;
-  a.download='MON-backup-'+date+'.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('✅ Backup downloaded!');
-}
-
-function importData(event){
-  const file=event.target.files[0];
-  if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      const parsed=JSON.parse(e.target.result);
-      // Validate it looks like MON data
-      if(typeof parsed.balance==='undefined'&&typeof parsed.transactions==='undefined'){
-        alert("This does not look like a MON backup file.");return;
-      }
-      if(!confirm('This will replace ALL your current data with the backup. Continue?'))return;
-      S={...DEF,...parsed};
-      persist();
-      // Restore settings inputs
-      const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
-      Object.entries(fields).forEach(([id,key])=>{
-        const el=document.getElementById('set-'+id);
-        if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
-      });
-      document.getElementById('set-pd').value=S.payday||'last';
-  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
-      render();
-      showToast('✅ Backup restored successfully!',3000);
-    }catch(err){
-      alert("Failed to read backup file. Make sure it is a valid MON export.");
-    }
-  };
-  reader.readAsText(file);
-  // Reset input so same file can be imported again if needed
-  event.target.value='';
-}
-
-function confReset(){if(confirm('Reset ALL data?')){S={...DEF};persist();['set-bal','set-vault','set-sal','set-svt'].forEach(id=>{document.getElementById(id).value=''});document.getElementById('set-pd').value='last';render()}}
 
 // ══════════════ PAYMENT FORM ══════════════
 let pfEditId=null;
@@ -1770,107 +1472,79 @@ function renderGoals(){
   }).join('');
 }
 
-// ══════════════ INSIGHTS ══════════════
-function renderInsights(){
-  const now=new Date();const r2=rate||63.5;
-  // Category breakdown (last 30 days)
-  const thirtyAgo=new Date(now.getTime()-30*86400000);
-  const recentTx=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=thirtyAgo);
-  const totalSpend=recentTx.reduce((a,t)=>a+t.amt,0);
-  const catMap={};recentTx.forEach(t=>{
-    // If no category set, auto-detect from name
-    const c=t.cat&&t.cat!=='💸 Other'?t.cat:detectNameMeta(t.desc).cat;
-    catMap[c]=(catMap[c]||0)+t.amt;
-  });
-  const catSorted=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
-  const catColors=['var(--purple)','var(--pink)','var(--blue)','var(--green)','var(--warn)','var(--red)','var(--php)','var(--gold)','var(--green-d)','var(--blue-d)'];
-  const cz=document.getElementById('cat-zone');
-  if(catSorted.length===0){cz.innerHTML=`<div class="scard"><div class="empty-r">Log some transactions to see your spending breakdown.</div></div>`}
-  else{
-    cz.innerHTML=`<div class="cat-card"><div class="sc-title">Last 30 days · ${fmtE(totalSpend)} total</div>${catSorted.map(([cat,amt],i)=>{const pct=totalSpend>0?Math.round(amt/totalSpend*100):0;return`<div class="cat-row"><div class="cat-emoji">${cat.split(' ')[0]}</div><div class="cat-info"><div class="cat-name"><span>${cat.split(' ').slice(1).join(' ')}</span><span style="font-size:13px;font-weight:700;color:${catColors[i%10]}">${fmtE(amt)}</span></div><div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${pct}%;background:${catColors[i%10]}"></div></div><div class="cat-pct">${pct}% of total</div></div></div>`}).join('')}</div>`;
-  }
-  // Month-end review
-  const rz=document.getElementById('review-zone');
-  const cycleStart=getCycleStart();
-  const cycleTx=S.transactions.filter(t=>new Date(t.date+'T00:00:00')>=cycleStart);
-  const cycleIn=cycleTx.filter(t=>t.type!=='spend'&&t.type!=='vault').reduce((a,t)=>a+t.amt,0);
-  const cycleOut=cycleTx.filter(t=>t.type==='spend').reduce((a,t)=>a+t.amt,0);
-  const cycleToVault=cycleTx.filter(t=>t.type==='vault').reduce((a,t)=>a+t.amt,0);
-  const savTarget=S.savingsTarget||0;
-  const hitSavings=cycleToVault>=savTarget;
-  const netPos=(cycleIn-cycleOut)>0;
-  const{current:streak,best}=getStreak();
-  const cls=hitSavings&&netPos?'pass':!hitSavings&&!netPos?'fail':'partial';
-  const emoji=cls==='pass'?'🌟':cls==='fail'?'😬':'💪';
-  const title=cls==='pass'?emoji+' Great cycle!':cls==='fail'?emoji+' Tough cycle':emoji+' Getting there';
-  const sub=cls==='pass'?'You stayed positive and hit your savings target. MON is proud of you!':cls==='fail'?'You spent more than you saved this cycle. Let\'s reset and do better — every month is a fresh start.':'You\'re making progress. Try to move a bit more to savings next cycle.';
-  rz.innerHTML=`<div class="review-card ${cls}"><div class="review-title">${title}</div><div class="review-sub">${sub}</div><div class="review-items"><div class="review-item"><div class="review-item-lbl">Income this cycle</div><div class="review-item-val" style="color:var(--green-d)">+${fmtE(cycleIn)}</div></div><div class="review-item"><div class="review-item-lbl">Spent this cycle</div><div class="review-item-val" style="color:var(--red-d)">−${fmtE(cycleOut)}</div></div><div class="review-item"><div class="review-item-lbl">Moved to vault</div><div class="review-item-val" style="color:var(--gold-d)">${fmtE(cycleToVault)}</div></div><div class="review-item"><div class="review-item-lbl">Net this cycle</div><div class="review-item-val" style="color:${cycleIn-cycleOut>=0?'var(--green-d)':'var(--red-d)'}">${fmtE(cycleIn-cycleOut)}</div></div></div></div>`;
-  // What-if calculator
-  renderWhatIf();
-  // Monthly trend
-  renderTrend();
+// ══════════════ VAULT ══════════════
+function vaultWithdraw(){
+  const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
+  const inp=prompt('Withdraw from vault (€):\nVault balance: '+fmtE(v),'');
+  const amt=parseCur(inp);if(!amt||amt<=0)return;
+  if(amt>v){alert('Not enough in vault');return}
+  S.vault=parseFloat((v-amt).toFixed(2));S.balance=parseFloat(((S.balance||0)+amt).toFixed(2));
+  S.transactions.push({id:Date.now(),type:'income',desc:'From savings vault',cat:'🏦 Vault',amt,date:todayStr()});
+  const si=document.getElementById('set-vault');if(si)si.value=S.vault.toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  persist();render();showToast('🏦 Withdrawn '+fmtE(amt)+' from vault');
 }
-function renderWhatIf(){
-  const wz=document.getElementById('whatif-zone');if(!wz)return;
-  const avgSpend=getAvgMonthlySpend();
-  // Use salary as fallback max if no spend data yet
-  const maxCut=Math.max(Math.round(avgSpend), Math.round((S.salary||500)*0.5), 100);
-  wz.innerHTML=`<div class="whatif-card">
-    <div class="whatif-title">If I cut my monthly spending by…</div>
-    <div class="slider-wrap">
-      <div class="slider-lbl"><span>Cut amount</span><span id="wi-cut-val">${fmtE(0)}/mo</span></div>
-      <input type="range" id="wi-slider" min="0" max="${maxCut}" value="0" step="10"/>
-    </div>
-    <div class="whatif-results"><div id="wi-results" class="whatif-res-grid"></div></div>
-  </div>`;
-  // Attach event listener AFTER injection so Safari picks it up reliably
-  const slider=document.getElementById('wi-slider');
-  if(slider){
-    slider.addEventListener('input',updateWhatIf);
-    slider.addEventListener('change',updateWhatIf);
-  }
-  updateWhatIf();
+
+// ══════════════ SETTINGS ══════════════
+function sv(){
+  S.balance=parseCur(document.getElementById('set-bal').value)||0;
+  S.vault=parseCur(document.getElementById('set-vault').value)||0;
+  S.salary=parseCur(document.getElementById('set-sal').value)||0;
+  S.savingsTarget=parseCur(document.getElementById('set-svt').value)||0;
+  S.payday=document.getElementById('set-pd').value;
+  const buf=parseInt(document.getElementById('set-buffer').value);
+  S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
+  persist();render();
 }
-function updateWhatIf(){
-  const slider=document.getElementById('wi-slider');
-  const cutVal=document.getElementById('wi-cut-val');
-  const resultsEl=document.getElementById('wi-results');
-  if(!slider||!cutVal||!resultsEl)return;
-  const cut=parseFloat(slider.value)||0;
-  cutVal.textContent=fmtE(cut)+'/mo';
-  const avgSpend=getAvgMonthlySpend();
-  const newSpend=Math.max(0,avgSpend-cut);
-  const totalGoalLeft=S.goals.reduce((a,g)=>a+Math.max(0,g.target-g.saved),0);
-  const totalCommit=S.goals.reduce((a,g)=>a+g.monthly,0);
-  const monthlyBills=S.payments.filter(p=>p.freq==='monthly').reduce((a,p)=>a+(p.currency==='PHP'?p.amountPhp/(rate||63.5):p.amountEur),0);
-  const extraPerMonth=cut;
-  const monthsToGoals=(totalCommit+extraPerMonth)>0&&totalGoalLeft>0?Math.ceil(totalGoalLeft/(totalCommit+extraPerMonth)):null;
-  const vaultInYear=(S.vault||0)+(totalCommit+extraPerMonth)*12;
-  const yearSaving=extraPerMonth*12;
-  resultsEl.innerHTML=`
-    <div class="whatif-res-item"><div class="whatif-res-lbl">Extra saved/mo</div><div class="whatif-res-val" style="color:var(--green-d)">+${fmtE(extraPerMonth)}</div></div>
-    <div class="whatif-res-item"><div class="whatif-res-lbl">Saved per year</div><div class="whatif-res-val" style="color:var(--green-d)">+${fmtE(yearSaving)}</div></div>
-    <div class="whatif-res-item"><div class="whatif-res-lbl">Goals reached in</div><div class="whatif-res-val" style="color:var(--purple-d)">${monthsToGoals?monthsToGoals+' mo':'—'}</div></div>
-    <div class="whatif-res-item"><div class="whatif-res-lbl">Vault in 1 year</div><div class="whatif-res-val" style="color:var(--gold-d)">${fmtE(vaultInYear)}</div></div>`;
+function exportData(){
+  const data=JSON.stringify(S,null,2);
+  const blob=new Blob([data],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const date=new Date().toISOString().slice(0,10);
+  a.href=url;
+  a.download='MON-backup-'+date+'.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ Backup downloaded!');
 }
-function getAvgMonthlySpend(){
-  const now=new Date();const threeAgo=new Date(now.getFullYear(),now.getMonth()-3,1);
-  const s=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=threeAgo).reduce((a,t)=>a+t.amt,0);
-  return s/3;
+
+function importData(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const parsed=JSON.parse(e.target.result);
+      // Validate it looks like MON data
+      if(typeof parsed.balance==='undefined'&&typeof parsed.transactions==='undefined'){
+        alert("This does not look like a MON backup file.");return;
+      }
+      if(!confirm('This will replace ALL your current data with the backup. Continue?'))return;
+      S={...DEF,...parsed};
+      persist();
+      // Restore settings inputs
+      const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
+      Object.entries(fields).forEach(([id,key])=>{
+        const el=document.getElementById('set-'+id);
+        if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
+      });
+      document.getElementById('set-pd').value=S.payday||'last';
+  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
+      render();
+      showToast('✅ Backup restored successfully!',3000);
+    }catch(err){
+      alert("Failed to read backup file. Make sure it is a valid MON export.");
+    }
+  };
+  reader.readAsText(file);
+  // Reset input so same file can be imported again if needed
+  event.target.value='';
 }
-function renderTrend(){
-  const tz=document.getElementById('trend-zone');if(!tz)return;
-  const now=new Date();const months=[];
-  for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);months.push({y:d.getFullYear(),m:d.getMonth(),label:d.toLocaleDateString('en-GB',{month:'short'})})}
-  const data=months.map(mo=>{
-    const start=new Date(mo.y,mo.m,1);const end=new Date(mo.y,mo.m+1,1);
-    const spend=S.transactions.filter(t=>t.type==='spend'&&new Date(t.date+'T00:00:00')>=start&&new Date(t.date+'T00:00:00')<end).reduce((a,t)=>a+t.amt,0);
-    const income=S.transactions.filter(t=>(t.type==='income'||t.type==='salary')&&new Date(t.date+'T00:00:00')>=start&&new Date(t.date+'T00:00:00')<end).reduce((a,t)=>a+t.amt,0);
-    return{...mo,spend,income};
-  });
-  const maxVal=Math.max(...data.map(d=>Math.max(d.spend,d.income)),1);
-  tz.innerHTML=`<div class="scard"><div class="sc-title">6-month income vs spend</div><div style="display:flex;align-items:flex-end;gap:8px;height:100px;margin-bottom:8px">${data.map(d=>{const sh=Math.round((d.spend/maxVal)*90);const ih=Math.round((d.income/maxVal)*90);return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="width:100%;display:flex;gap:2px;align-items:flex-end;height:90px"><div style="flex:1;height:${ih}px;background:var(--green);border-radius:4px 4px 0 0;min-height:2px"></div><div style="flex:1;height:${sh}px;background:var(--pink);border-radius:4px 4px 0 0;min-height:2px"></div></div><div style="font-size:10px;color:var(--text2);font-weight:600">${d.label}</div></div>`}).join('')}</div><div style="display:flex;gap:16px;font-size:12px;color:var(--text2)"><div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:10px;border-radius:2px;background:var(--green)"></div>Income</div><div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:10px;border-radius:2px;background:var(--pink)"></div>Spend</div></div></div>`;
-}
+
+function confReset(){if(confirm('Reset ALL data?')){S={...DEF};persist();['set-bal','set-vault','set-sal','set-svt'].forEach(id=>{document.getElementById(id).value=''});document.getElementById('set-pd').value='last';render()}}
 
 // ══════════════ MAIN RENDER ══════════════
 function getCycleStart(){
@@ -1881,7 +1555,7 @@ function getCycleStart(){
 function render(){
   applyToggles();
   renderGoalsHome();
-  renderForecast();
+
   const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
   const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;const res=billsEur+sav;
   const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
@@ -2097,7 +1771,7 @@ window.addEventListener('load',()=>{
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
   // Restore toggle states
-  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true,forecast:true};
+  if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
   applyToggles();
   fetchRate();
   setInterval(fetchRate,5*60*1000);
