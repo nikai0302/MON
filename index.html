@@ -798,20 +798,21 @@ function stype(t){
   document.getElementById('pill-salary').className='tpill'+(t==='salary'?' al':'');
   document.getElementById('pill-vault').className='tpill'+(t==='vault'?' av':'');
   const desc=document.getElementById('q-desc');
+  const hint=document.getElementById('salary-preset-hint');
   if(t==='salary'){
     desc.value='Monthly salary';
     const a=document.getElementById('q-amt');
-    // Pre-fill with preset but user can change it freely — preset is NOT updated
     if(S.salary){a.value=S.salary.toFixed(2).replace('.',',');}
-    // Show hint below the bar
-    const hint=document.getElementById('salary-preset-hint');
     if(hint){hint.style.display=S.salary?'block':'none';hint.textContent='Preset: '+fmtE(S.salary||0)+' — edit above if this month differs';}
+  } else if(t==='vault'){
+    desc.value='To savings vault';
+    desc.placeholder='Amount to lock in vault…';
+    if(hint)hint.style.display='none';
   } else {
-    const hint=document.getElementById('salary-preset-hint');
+    desc.value='';
+    desc.placeholder=t==='income'?'e.g. Bonus, freelance…':'Description…';
     if(hint)hint.style.display='none';
   }
-  else if(t==='vault'){desc.value='To savings vault';desc.placeholder='Amount to lock in vault…'}
-  else{desc.value='';desc.placeholder=t==='income'?'e.g. Bonus, freelance…':'Description…'}
 }
 function logTx(){
   const desc=document.getElementById('q-desc').value.trim()||(ltype==='salary'?'Monthly salary':ltype==='income'?'Income':ltype==='vault'?'To savings vault':'Expense');
@@ -982,8 +983,7 @@ function closeSalAction(e){
 function salActionChoice(what){
   document.getElementById('sal-action-sheet').classList.remove('open');
   if(what==='amount'||what==='both'){
-    const newAmt=prompt('New monthly salary (€):
-Current: '+fmtE(S.salary||0),'');
+    const newAmt=prompt('New monthly salary (€) — Current: '+fmtE(S.salary||0),'');
     const amt=parseCur(newAmt);
     if(amt&&amt>0){
       S.salary=amt;
@@ -994,8 +994,7 @@ Current: '+fmtE(S.salary||0),'');
   if(what==='date'||what==='both'){
     const days=['Last day','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31'];
     const cur=S.payday==='last'?'last day':('day '+S.payday);
-    const newDay=prompt('New pay day (enter a number 1-31 or "last" for last day of month):
-Current: '+cur,'');
+    const newDay=prompt('New pay day (1-31 or "last") — Current: '+cur,'');
     if(newDay){
       const d=newDay.trim().toLowerCase();
       if(d==='last'||d==='last day'){S.payday='last';}
