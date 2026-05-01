@@ -1328,6 +1328,210 @@ function saveRIEdit(){
   persist();document.getElementById('ri-edit-sheet').classList.remove('open');render();
 }
 
+// ══════════════ CALENDAR VIEW ══════════════
+let calViewYear=new Date().getFullYear();
+let calViewMonth=new Date().getMonth();
+let calViewSelected=null;
+
+function calViewNav(dir){
+  calViewMonth+=dir;
+  if(calViewMonth>11){calViewMonth=0;calViewYear++;}
+  if(calViewMonth<0){calViewMonth=11;calViewYear--;}
+  renderCalView();
+}
+
+function getEventsOnDate(ds){
+  const r2=rate||63.5;
+  const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
+  const events=[];
+
+  // Logged transactions on this date
+  S.transactions.filter(t=>t.date===ds).forEach(t=>{
+    const isInc=t.type==='income'||t.type==='salary';
+    const isVlt=t.type==='vault';
+    events.push({
+      type:isInc?'income':isVlt?'vault':'spend',
+      name:t.desc,
+      amt:t.amt,
+      icon:t.type==='salary'?'💰':isVlt?'🏦':isInc?'💚':detectNameMeta(t.desc).icon,
+      logged:true,
+      positive:isInc
+    });
+  });
+
+  // Salary payday
+  const salAmt=S.salary||0;
+  if(salAmt>0){
+    const y=target.getFullYear(),m=target.getMonth();
+    const pdDay=resDay(S.payday,y,m);
+    if(target.getDate()===pdDay){
+      events.push({type:'salary',name:'Salary',amt:salAmt,icon:'💰',scheduled:true,positive:true});
+      const sv=S.savingsTarget||0;
+      if(sv>0)events.push({type:'savings',name:'→ Savings vault',amt:sv,icon:'🏦',scheduled:true,positive:false,isDeduction:true});
+    }
+  }
+
+  // Recurring income
+  (S.recurringIncome||[]).forEach(ri=>{
+    const base=new Date(ri.date+'T00:00:00');
+    let match=false;
+    if(ri.freq==='once') match=base.getTime()===target.getTime();
+    else if(ri.freq==='monthly') match=target.getDate()===Math.min(base.getDate(),lastDay(target.getFullYear(),target.getMonth()));
+    else if(ri.freq==='weekly'){const diff=Math.round((target-base)/86400000);match=diff>0&&diff%7===0;}
+    else if(ri.freq==='annual') match=base.getDate()===target.getDate()&&base.getMonth()===target.getMonth();
+    if(match) events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true});
+  });
+
+  // Scheduled bills
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+    const base=new Date(p.dueDate+'T00:00:00');
+    let match=false;
+    if(p.freq==='once') match=base.getTime()===target.getTime();
+    else if(p.freq==='monthly') match=target.getDate()===Math.min(base.getDate(),lastDay(target.getFullYear(),target.getMonth()));
+    else if(p.freq==='weekly'){const diff=Math.round((target-base)/86400000);match=diff>0&&diff%7===0;}
+    else if(p.freq==='annual') match=base.getDate()===target.getDate()&&base.getMonth()===target.getMonth();
+    if(match) events.push({type:'bill',name:p.name,amt:eur,icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
+      sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,scheduled:true,positive:false});
+  });
+
+  return events;
+}
+
+function getBalanceOnDate(ds){
+  const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
+  const todayD=new Date();todayD.setHours(0,0,0,0);
+  let bal=parseFloat((S.balance||0).toFixed(2));
+
+  if(target.getTime()===todayD.getTime()) return bal;
+
+  if(target<todayD){
+    // Past: undo transactions that happened AFTER target date
+    S.transactions.forEach(t=>{
+      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      if(td>target){
+        const isIn=t.type==='income'||t.type==='salary';
+        if(isIn) bal=parseFloat((bal-t.amt).toFixed(2));
+        else bal=parseFloat((bal+t.amt).toFixed(2));
+      }
+    });
+    return parseFloat(bal.toFixed(2));
+  }
+
+  // Future: walk forward day by day adding scheduled events
+  let cursor=new Date(todayD.getTime()+86400000);
+  while(cursor<=target){
+    const ds2=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
+    const evs=getEventsOnDate(ds2);
+    evs.forEach(ev=>{
+      if(ev.logged) return; // already reflected in S.balance
+      if(ev.positive) bal=parseFloat((bal+ev.amt).toFixed(2));
+      else if(!ev.isDeduction) bal=parseFloat((bal-ev.amt).toFixed(2));
+      else bal=parseFloat((bal-ev.amt).toFixed(2)); // savings deduction
+    });
+    cursor.setDate(cursor.getDate()+1);
+  }
+  return parseFloat(bal.toFixed(2));
+}
+
+function renderCalView(){
+  const MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const lbl=document.getElementById('cal-month-label');
+  if(lbl)lbl.textContent=MN[calViewMonth]+' '+calViewYear;
+  const grid=document.getElementById('cal-view-grid');
+  if(!grid)return;
+  const today=new Date();today.setHours(0,0,0,0);
+  const firstDay=new Date(calViewYear,calViewMonth,1).getDay();
+  const daysInMonth=lastDay(calViewYear,calViewMonth);
+  const DAYS=['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+  let html='<div style="display:grid;grid-template-columns:repeat(7,1fr)">';
+  DAYS.forEach(d=>{html+=`<div class="cv-day-hdr">${d}</div>`;});
+  for(let i=0;i<firstDay;i++) html+=`<div class="cv-day other-mo"></div>`;
+
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const evs=getEventsOnDate(ds);
+    const hasBill=evs.some(e=>e.type==='bill');
+    const hasInc=evs.some(e=>e.type==='income'||e.type==='salary');
+    const hasLogged=evs.some(e=>e.logged);
+    const isToday=new Date(calViewYear,calViewMonth,d).getTime()===today.getTime();
+    const isSel=calViewSelected===ds;
+    const bal=getBalanceOnDate(ds);
+    const balColor=bal>=0?'var(--green-d)':'var(--red-d)';
+    const dots=[
+      hasBill?'<div class="cv-dot cv-dot-bill"></div>':'',
+      hasInc?'<div class="cv-dot cv-dot-inc"></div>':'',
+      hasLogged&&!hasBill&&!hasInc?'<div class="cv-dot" style="background:var(--text3)"></div>':''
+    ].join('');
+    html+=`<div class="cv-day${isToday?' today-cell':''}${isSel?' selected-cell':''}" onclick="calViewSelectDay('${ds}')">
+      <div class="cv-day-num">${d}</div>
+      <div class="cv-day-bal" style="color:${balColor}">${fmtE(bal)}</div>
+      <div class="cv-day-dot">${dots}</div>
+    </div>`;
+  }
+  html+='</div>';
+  grid.innerHTML=html;
+
+  // Show today detail by default, or selected day
+  const selDs=calViewSelected||(calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()?
+    today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0'):null);
+  if(selDs) calViewShowDetail(selDs);
+  else{const dd=document.getElementById('cal-day-detail');if(dd)dd.innerHTML='<div style="font-size:13px;color:var(--text2);text-align:center;padding:20px">Tap a day to see details</div>';}
+}
+
+function calViewSelectDay(ds){
+  calViewSelected=ds;
+  // Re-render just the grid highlight + detail without full rebuild
+  document.querySelectorAll('.cv-day').forEach(el=>el.classList.remove('selected-cell'));
+  const allDays=document.querySelectorAll('.cv-day');
+  const y=calViewYear,m=calViewMonth;
+  const firstDay=new Date(y,m,1).getDay();
+  const idx=parseInt(ds.slice(8))-1+firstDay;
+  if(allDays[idx])allDays[idx].classList.add('selected-cell');
+  calViewShowDetail(ds);
+}
+
+function calViewShowDetail(ds){
+  const detail=document.getElementById('cal-day-detail');
+  if(!detail)return;
+  const target=new Date(ds+'T00:00:00');
+  const dayName=target.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  const bal=getBalanceOnDate(ds);
+  const evs=getEventsOnDate(ds);
+  const today=new Date();today.setHours(0,0,0,0);
+  const isToday=target.getTime()===today.getTime();
+  const isFuture=target>today;
+
+  const incomes=evs.filter(e=>e.positive&&!e.isDeduction);
+  const outgoing=evs.filter(e=>!e.positive||e.isDeduction);
+
+  const evHTML=(evs.length===0
+    ?'<div style="padding:10px 0;font-size:13px;color:var(--text2)">No events — balance unchanged from previous day</div>'
+    :[...incomes,...outgoing].map(ev=>{
+      const col=ev.positive&&!ev.isDeduction?'var(--green-d)':'var(--red-d)';
+      const sign=ev.positive&&!ev.isDeduction?'+':'−';
+      const bg=ev.positive&&!ev.isDeduction?'var(--green-l)':ev.type==='savings'?'var(--gold-l)':'var(--red-l)';
+      return`<div class="cv-event-row">
+        <div class="cv-event-icon" style="background:${bg}">${ev.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div class="cv-event-name">${ev.name}${ev.sub?'<br><span style="font-size:11px;color:var(--text2)">'+ev.sub+'</span>':''}</div>
+          <div class="cv-event-sub">${ev.scheduled?'📅 Scheduled':ev.logged?'✓ Logged':''}</div>
+        </div>
+        <div class="cv-event-amt" style="color:${col};font-size:15px;font-weight:700;margin-left:12px">${sign}${fmtE(ev.amt)}</div>
+      </div>`;
+    }).join(''));
+
+  detail.innerHTML=`<div class="cv-detail-card">
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px">${dayName}${isToday?' 📍':isFuture?' 🔮':' 📋'}</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${isToday?'Current balance':isFuture?'Projected balance (scheduled events only)':'Balance on this date'}</div>
+    <div class="cv-detail-bal ${bal>=0?'pos':'neg'}">${fmtE(bal)}</div>
+    ${evs.length>0?`<div style="height:.5px;background:var(--border);margin:12px 0"></div>
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Events this day</div>`:''}
+    ${evHTML}
+  </div>`;
+}
+
 // ══════════════ SECTION TOGGLES ══════════════
 function togSection(key){
   if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
