@@ -1480,21 +1480,28 @@ function openPF(eid){
     if(p.endDate){document.getElementById('pf-end-date-hidden').value=p.endDate;document.getElementById('pf-end-date-display').textContent='✓ '+fmtDate(p.endDate);document.getElementById('pf-end-date-display').style.color='var(--green-d)';}
     else{document.getElementById('pf-end-date-display').textContent='No end date — ongoing';document.getElementById('pf-end-date-display').style.color='var(--text2)';}
   }}
-  togglePFC();toggleEndDate();
+  togglePFC();
   buildCal('pf-cal-wrap','pf-date-hidden','pf-date-display',document.getElementById('pf-date-hidden').value||null);
-  if(document.getElementById('pf-freq').value!=='once'){
-    buildCal('pf-end-cal-wrap','pf-end-date-hidden','pf-end-date-display',document.getElementById('pf-end-date-hidden').value||null);
-  }
+  // Call toggleEndDate AFTER setting freq so it shows correctly
+  toggleEndDate();
   document.getElementById('pf-sheet').classList.add('open');setTimeout(()=>document.getElementById('pf-name').focus(),150);
 }
 function closePF(e){if(!e||e.target===document.getElementById('pf-sheet'))document.getElementById('pf-sheet').classList.remove('open')}
 function toggleEndDate(){
   const freq=document.getElementById('pf-freq').value;
   const fld=document.getElementById('pf-enddate-fld');
-  // Show end date for recurring bills only (not one-time)
-  if(fld)fld.style.display=freq==='once'?'none':'';
-  if(freq!=='once'&&!calState['pf-end-cal-wrap']){
-    buildCal('pf-end-cal-wrap','pf-end-date-hidden','pf-end-date-display',null);
+  if(!fld)return;
+  if(freq==='once'){
+    fld.style.display='none';
+  } else {
+    fld.style.display='';
+    // Always rebuild calendar so it's fresh each time sheet opens
+    const existingDate=document.getElementById('pf-end-date-hidden').value||null;
+    buildCal('pf-end-cal-wrap','pf-end-date-hidden','pf-end-date-display',existingDate);
+    if(!existingDate){
+      document.getElementById('pf-end-date-display').textContent='No end date — ongoing';
+      document.getElementById('pf-end-date-display').style.color='var(--text2)';
+    }
   }
 }
 function clearEndDate(){
