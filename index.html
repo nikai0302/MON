@@ -2013,7 +2013,7 @@ function sv(){
   if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
   S.payday=document.getElementById('set-pd').value;
   const buf=parseInt(document.getElementById('set-buffer').value);
-  S.bufferPct=(!isNaN(buf)&&buf>=0&&buf<=50)?buf:20;
+  if(!isNaN(buf)&&buf>=0&&buf<=50)S.bufferPct=buf;
   S.monthlyBudget=parseCur(document.getElementById('set-budget').value)||0;
   persist();render();
 }
