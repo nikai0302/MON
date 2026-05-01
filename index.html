@@ -574,7 +574,7 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Auto-moved to vault on payday (€)</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Monthly spend budget</div><div class="s">Max you allow yourself to spend. Unspent rolls to vault at month end (€)</div></div><input class="stinp" id="set-budget" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer</div><div class="s">Extra % held back from safe-to-spend</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:55px" oninput="sv()"/>
@@ -1078,14 +1078,7 @@ function logTx(){
     S.balance=parseFloat(((S.balance||0)+(isIn?amt:-amt)).toFixed(2));
     S.transactions.push({id:Date.now(),type:ltype,desc,cat,amt,date:dateVal});
     // On salary: auto-move savings target to vault
-    if(ltype==='salary'&&S.savingsTarget>0){
-      const sv=S.savingsTarget;
-      S.balance=parseFloat(((S.balance||0)-sv).toFixed(2));
-      S.vault=parseFloat(((S.vault||0)+sv).toFixed(2));
-      S.transactions.push({id:Date.now()+1,type:'vault',desc:'Auto-savings from salary',cat:'🏦 Vault',amt:sv,date:dateVal});
-      const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
-      showToast('💰 Salary logged · 🏦 '+fmtE(sv)+' auto-saved to vault');
-    }
+    // Vault is manual — user deposits to vault themselves
   }
   // streak check: did today's total spend stay under daily limit?
   const r2=rate||63.5;const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;
@@ -1479,8 +1472,7 @@ function getEventsOnDate(ds){
     const pdDay=resDay(S.payday,y,m);
     if(target.getDate()===pdDay){
       events.push({type:'salary',name:'Salary',amt:salAmt,icon:'💰',scheduled:true,positive:true});
-      const sv=S.savingsTarget||0;
-      if(sv>0)events.push({type:'savings',name:'→ Savings vault',amt:sv,icon:'🏦',scheduled:true,positive:false,isDeduction:true});
+      // Vault is manual — no auto-deduction shown in calendar
     }
   }
 
@@ -1548,9 +1540,7 @@ function getBalanceOnDate(ds){
         const pdDay=resDay(S.payday,cy,cm);
         if(pdDay>=startDay&&pdDay<=endDay){
           bal=parseFloat((bal+S.salary).toFixed(2));
-          // Savings target deducted on payday
-          const sv=S.savingsTarget||0;
-          if(sv>0) bal=parseFloat((bal-sv).toFixed(2));
+          // Savings target is a planning reserve — not auto-deducted (vault is manual)
         }
       }
 
@@ -1683,34 +1673,19 @@ function renderCalView(){
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
   const fd=(firstDay+6)%7;
 
-  // ── Pre-compute balance for every day in this month ──
-  const dayBals={};
-  // Running balance starts fresh from S.balance at today
-  // and walks forward from tomorrow onwards
-  let runBal=parseFloat((S.balance||0).toFixed(2));
-  let futureModeStarted=false;
-
-  for(let d=1;d<=daysInMonth;d++){
-    const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-    const dayDate=new Date(calViewYear,calViewMonth,d);dayDate.setHours(0,0,0,0);
-
-    if(dayDate<today){
-      // Past: reconstruct from logged transactions
-      dayBals[d]=getBalanceOnDate(ds);
-    } else if(dayDate.getTime()===today.getTime()){
-      // Today: always S.balance exactly
-      dayBals[d]=parseFloat((S.balance||0).toFixed(2));
-      runBal=dayBals[d]; // reset running balance to actual today
-    } else {
-      // Future: walk forward applying scheduled events only
-      const evs=getEventsOnDate(ds);
-      evs.forEach(ev=>{
-        if(ev.logged)return; // logged txns already in S.balance
-        if(ev.positive)runBal=parseFloat((runBal+ev.amt).toFixed(2));
-        else runBal=parseFloat((runBal-ev.amt).toFixed(2));
-      });
-      dayBals[d]=parseFloat(runBal.toFixed(2));
-    }
+  // ── Pre-compute balance for every day in the viewed month ──
+  // Single source of truth: getBalanceOnDate() for every date.
+  // Cells and detail panel always match because they use the same function.
+  window._calDayBals={};
+  const dayBals=window._calDayBals;
+  const monthStart=new Date(calViewYear,calViewMonth,1);
+  const monthEnd=new Date(calViewYear,calViewMonth+1,0); // last day of month, dynamic
+  for(let cur=new Date(monthStart);cur<=monthEnd;cur.setDate(cur.getDate()+1)){
+    const y=cur.getFullYear();
+    const mo=String(cur.getMonth()+1).padStart(2,'0');
+    const d=cur.getDate();
+    const ds=y+'-'+mo+'-'+String(d).padStart(2,'0');
+    dayBals[d]=getBalanceOnDate(ds);
   }
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
@@ -1768,7 +1743,10 @@ function calViewShowDetail(ds){
   if(!detail)return;
   const target=new Date(ds+'T00:00:00');
   const dayLabel=target.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-  const bal=getBalanceOnDate(ds);
+  // Use precomputed balance if available (same month), else recompute
+  const _precomputed=window._calDayBals&&window._calDayBals[parseInt(ds.slice(8))];
+  const _sameMonth=parseInt(ds.slice(0,4))===calViewYear&&parseInt(ds.slice(5,7))-1===calViewMonth;
+  const bal=(_sameMonth&&_precomputed!==undefined)?_precomputed:getBalanceOnDate(ds);
   const evs=getEventsOnDate(ds);
   const today=new Date();today.setHours(0,0,0,0);
   const isToday=target.getTime()===today.getTime();
@@ -2129,7 +2107,9 @@ function render(){
   const nwBalStr=nwt.bal?fmtE(bal):'••••';
   const nwVaultStr=nwt.vault?fmtE(vault):'••••';
   const nwGoalsStr=nwt.goals?fmtE(totalGoalSaved):'••••';
-  const nwTotalStr=(!nwt.bal&&!nwt.vault&&!nwt.goals)?'••••':fmtE(netWorth);
+  // Total hides each hidden component
+  const visibleNW=(nwt.bal?bal:0)+(nwt.vault?vault:0)+(nwt.goals?totalGoalSaved:0);
+  const nwTotalStr=(!nwt.bal&&!nwt.vault&&!nwt.goals)?'••••':fmtE(visibleNW);
   document.getElementById('nw-zone').innerHTML=`<div class="nw-card">
     <div class="nw-label">Net worth</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
@@ -2268,13 +2248,16 @@ function render(){
     cls='bad';msg='Balance empty — avoid spending until payday.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(safe<=0){
-    cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
+    cls='bad';msg='Bills and savings target exceed your balance.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
+  } else if(remainingToday<=0){
+    cls='warn';msg='You have reached your spending limit for today.';amt='€0';
+    sub='Daily limit '+fmtE(dailyLimit)+' · '+fmtE(safe)+' left until payday in '+dl+'d';
   } else {
-    cls=dailyLimit<20?'warn':'ok';
+    cls=remainingToday<20?'warn':'ok';
     msg='You are allowed to spend';
-    amt=fmtE(dailyLimit);
-    sub='today · '+fmtE(safe)+' total until payday in '+dl+' day'+(dl!==1?'s':'');
+    amt=fmtE(remainingToday);
+    sub='remaining today · daily limit '+fmtE(dailyLimit)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
@@ -2448,7 +2431,6 @@ window.addEventListener('load',()=>{
       window.location.reload();
     });
   }
-  checkMonthlyBudgetRollover();
   setupSwipe();
   addSwipeDownToClose('pf-sheet', closePF);
   addSwipeDownToClose('gf-sheet', closeGF);
