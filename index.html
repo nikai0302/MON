@@ -8,7 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="MON"/>
 <meta name="theme-color" content="#e8d5f5"/>
-<title>MON</title>
+<link rel="manifest" href="./manifest.json"/>
+  <title>MON</title>
 <style>
 :root{
   --bg:#f0e8f8;--bg2:#e8d5f5;--bg3:#fce4f0;--bg4:#ddeeff;
@@ -614,6 +615,7 @@ select.stinp{cursor:pointer}
         </div>
       </div>
       <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)"/>
+      <input type="hidden" id="set-budget" value="0"/>
     </div>
   </div>
 </div>
@@ -755,7 +757,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:'last',payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,'goals-home':true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:''};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true}};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -2014,7 +2016,7 @@ function sv(){
   S.payday=document.getElementById('set-pd').value;
   const buf=parseInt(document.getElementById('set-buffer').value);
   if(!isNaN(buf)&&buf>=0&&buf<=50)S.bufferPct=buf;
-  S.monthlyBudget=parseCur(document.getElementById('set-budget').value)||0;
+  const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   persist();render();
 }
 function exportData(){
@@ -2053,8 +2055,8 @@ function importData(event){
         if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
       });
       document.getElementById('set-pd').value=S.payday||'last';
-  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
-  const bdgEl=document.getElementById('set-budget');if(bdgEl&&S.monthlyBudget)bdgEl.value=S.monthlyBudget.toFixed(2).replace('.',',');
+  // buffer input not reset in render — sv() keeps S.bufferPct in sync, init sets the field
+  // monthlyBudget field removed from settings UI
       render();
       showToast('✅ Backup restored successfully!',3000);
     }catch(err){
@@ -2369,7 +2371,7 @@ function addSwipeDownToClose(sheetId, closeFn){
 }
 
 // ══════════════ SWIPE NAVIGATION ══════════════
-const TABS=['overview','history','payments','goals','insights','settings'];
+const TABS=['overview','history','payments','goals','calendar','settings'];
 function setupSwipe(){
   const cnt=document.getElementById('cnt');
   if(!cnt)return;
@@ -2404,8 +2406,8 @@ window.addEventListener('load',()=>{
   const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
   Object.entries(fields).forEach(([id,key])=>{const el=document.getElementById('set-'+id);if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',')});
   document.getElementById('set-pd').value=S.payday||'last';
-  const bufEl=document.getElementById('set-buffer');if(bufEl)bufEl.value=S.bufferPct!==undefined?S.bufferPct:20;
-  const bdgEl=document.getElementById('set-budget');if(bdgEl&&S.monthlyBudget)bdgEl.value=S.monthlyBudget.toFixed(2).replace('.',',');
+  // buffer input not reset in render — sv() keeps S.bufferPct in sync, init sets the field
+  // monthlyBudget field removed from settings UI
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
   // Restore toggle states
