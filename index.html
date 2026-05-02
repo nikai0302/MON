@@ -2478,13 +2478,16 @@ function render(){
     cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
-    cls='warn';msg='Daily limit reached.';amt='€0';
-    sub='Monthly pool '+fmtE(totalCycleBudget)+' · payday in '+dl+'d';
+    cls='warn';
+    msg='Daily limit reached — you have spent '+fmtE(todaySpend)+' today.';
+    amt=fmtE(safe);
+    sub='Pool remaining: '+fmtE(safe)+' ÷ '+dl+'d = '+fmtE(dailyLimit)+'/day tomorrow · payday in '+dl+'d';
   } else {
     cls=remainingToday<20?'warn':'ok';
-    msg='You are allowed to spend today';
+    msg='Spend up to';
     amt=fmtE(remainingToday);
-    sub='Monthly pool '+fmtE(totalCycleBudget)+' ('+fmtE(cycleSpend)+' used) · payday in '+dl+' day'+(dl!==1?'s':'');
+    // Show pool = totalCycleBudget, spent = cycleSpend, remaining = safe, daily = safe/dl
+    sub='Pool '+fmtE(totalCycleBudget)+' · spent '+fmtE(cycleSpend)+' · '+fmtE(safe)+' left ÷ '+dl+'d = '+fmtE(dailyLimit)+'/day · payday in '+dl+'d';
   }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
