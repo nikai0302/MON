@@ -911,120 +911,103 @@ async function requestNotifPermission(){
 
 async function fetchRateHistoryAndAdvise(){
   if(!rate)return;
-  // Refresh every 5 minutes
-  if(Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return;
+  // Refresh if rate changed or 5 min passed
+  const rateChanged=Math.abs((rate||0)-(_rateAdviceCache.lastRate||0))>0.02;
+  if(!rateChanged && Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return;
+  _rateAdviceCache.lastRate=rate;
 
   const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
   if(!phpPays.length)return;
 
-  // ── Due date context for each PHP bill ──
+  // Due date context
   const dueContexts=phpPays.map(p=>{
     const bd=nextBillDate(p);
     const daysToP=daysUntil(bd);
     const r2=rate||63.5;
-    return{name:p.name,amountPhp:p.amountPhp,amountEur:(p.amountPhp/r2).toFixed(2),daysLeft:daysToP,dueDate:bd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
+    return{name:p.name,amountPhp:p.amountPhp,amountEur:(p.amountPhp/r2).toFixed(2),
+      daysLeft:daysToP,dueDate:bd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
   });
 
-  // ── Fetch 30-day EUR/PHP historical data ──
+  // Fetch 30-day historical EUR/PHP from Frankfurter (ECB data)
   let historicalRates=[];
   const fmtD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   const histEnd=new Date();
   const histStart=new Date(histEnd.getTime()-30*24*3600*1000);
-  const histApis=[
-    `https://api.frankfurter.app/${fmtD(histStart)}..${fmtD(histEnd)}?from=EUR&to=PHP`,
-    `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${fmtD(histStart)}/v1/currencies/eur.json`
-  ];
-  for(const url of histApis){
-    try{
-      const resp=await fetch(url,{signal:AbortSignal.timeout(5000)});
-      const data=await resp.json();
-      if(data.rates&&Object.keys(data.rates).length>0){
-        historicalRates=Object.entries(data.rates)
-          .filter(([,v])=>v.PHP||typeof v==='number')
-          .sort((a,b)=>a[0].localeCompare(b[0]))
-          .map(([date,r])=>({date,rate:r.PHP||r}));
-        if(historicalRates.length>0)break;
-      }
-    }catch(e){}
-  }
+  try{
+    const resp=await fetch(
+      `https://api.frankfurter.app/${fmtD(histStart)}..${fmtD(histEnd)}?from=EUR&to=PHP`,
+      {signal:AbortSignal.timeout(6000)}
+    );
+    const data=await resp.json();
+    if(data.rates){
+      historicalRates=Object.entries(data.rates)
+        .sort((a,b)=>a[0].localeCompare(b[0]))
+        .map(([date,r])=>({date,rate:r.PHP}));
+    }
+  }catch(e){}
 
-  const r30=historicalRates.slice(-30);
-  const r7=historicalRates.slice(-7);
-  const avg30=r30.length?r30.reduce((a,h)=>a+h.rate,0)/r30.length:null;
-  const avg7=r7.length?r7.reduce((a,h)=>a+h.rate,0)/r7.length:null;
-
-  // Local readings
+  // Local stored readings
   let localHistory=[];
   try{localHistory=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');}catch(e){}
 
-  // Determine trend
-  let quickTrend='neutral';
-  if(avg7&&avg30){
-    const d=(avg7-avg30)/avg30*100;
-    if(d>=0.3)quickTrend='up';
-    else if(d<=-0.3)quickTrend='down';
+  const r30=historicalRates.length>=5?historicalRates:
+    localHistory.map(h=>({date:new Date(h.t).toISOString().slice(0,10),rate:h.r}));
+  const r7=r30.slice(-7);
+  const avg30=r30.length?r30.reduce((a,h)=>a+h.rate,0)/r30.length:null;
+  const avg7=r7.length?r7.reduce((a,h)=>a+h.rate,0)/r7.length:null;
+
+  // ── Pure algorithmic advice — no AI needed ──
+  const soonest=dueContexts.sort((a,b)=>a.daysLeft-b.daysLeft)[0];
+  const daysLeft=soonest.daysLeft;
+  const amountPhp=soonest.amountPhp;
+  const r2=rate||63.5;
+  const todayCost=(amountPhp/r2).toFixed(2);
+
+  let advice='',trend='neutral',urgent=false;
+
+  if(daysLeft<=3){
+    // Urgent — due very soon, must transfer regardless of rate
+    urgent=true;trend='up';
+    advice=`✅ TRANSFER NOW — ${soonest.name} is due ${daysLeft===0?'TODAY':daysLeft+'d ('+soonest.dueDate+')'}. Do not wait regardless of the rate. Current cost: €${todayCost} for ₱${amountPhp.toLocaleString('de-DE')}.`;
+  } else if(avg7&&avg30){
+    const diff=rate-avg7;
+    const diffPHP=(diff*(amountPhp/rate)).toFixed(0);
+    const pct=((rate-avg7)/avg7*100).toFixed(2);
+    if(diff>=0.15){
+      // Rate above 7-day avg — good time
+      urgent=true;trend='up';
+      advice=`✅ TRANSFER NOW — rate ₱${rate.toFixed(2)}/€ is +₱${diff.toFixed(2)} above 7-day avg (₱${avg7.toFixed(2)}), saving you ~₱${Math.abs(diffPHP)} on your ${soonest.name}. Due in ${daysLeft}d (${soonest.dueDate}).`;
+    } else if(diff<=-0.15){
+      // Rate below avg — consider waiting if time allows
+      trend='down';
+      const waitDays=Math.min(daysLeft-2,7);
+      if(waitDays>=2){
+        advice=`⏳ WAIT ${waitDays} DAYS — rate ₱${rate.toFixed(2)}/€ is -₱${Math.abs(diff).toFixed(2)} below 7-day avg (₱${avg7.toFixed(2)}). Waiting could save ~₱${Math.abs(diffPHP)} on ${soonest.name} due ${soonest.dueDate}.`;
+      } else {
+        urgent=true;trend='up';
+        advice=`✅ TRANSFER NOW — ${soonest.name} due ${soonest.dueDate} (${daysLeft}d) is too soon to wait for a better rate. Current: ₱${rate.toFixed(2)}/€.`;
+      }
+    } else {
+      // Stable — neutral
+      trend='stable';
+      advice=`➡️ RATE STABLE — at ₱${rate.toFixed(2)}/€ vs 7-day avg ₱${avg7.toFixed(2)}. ${soonest.name} due ${soonest.dueDate} (${daysLeft}d) — transfer anytime this week.`;
+    }
+  } else if(daysLeft<=7){
+    // No historical data but due soon
+    urgent=daysLeft<=5;trend=urgent?'up':'stable';
+    advice=`${urgent?'✅ TRANSFER NOW':'➡️ TRANSFER SOON'} — ${soonest.name} due ${soonest.dueDate} (${daysLeft}d). Current rate: ₱${rate.toFixed(2)}/€, cost €${todayCost}.`;
+  } else {
+    advice=`➡️ No urgency — ${soonest.name} due ${soonest.dueDate} (${daysLeft}d). Rate: ₱${rate.toFixed(2)}/€. Check back closer to due date.`;
+    trend='stable';
   }
 
-  // ── Ask Claude with due date context ──
-  try{
-    const histSummary=r30.slice(-10).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(', ');
-    const dueStr=dueContexts.map(d=>`${d.name} (₱${d.amountPhp.toLocaleString()}) due ${d.dueDate} — ${d.daysLeft===0?'TODAY':d.daysLeft+'d away'}`).join('; ');
-    const localStr=localHistory.slice(-8).map(h=>{const t=new Date(h.t);return t.toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+': ₱'+h.r.toFixed(2);}).join(', ')||'none yet';
-
-    // Add timestamp to force fresh response each time
-    const ts=new Date().toLocaleTimeString('en-GB');
-    const prompt=`You are a financial assistant for a Filipino expat in Europe sending remittances via TapTap Send.
-
-EUR/PHP rate data:
-- Live TapTap rate NOW: ₱${rate.toFixed(2)}/€ (ECB market: ₱${ecbRate?ecbRate.toFixed(2):'N/A'}/€)
-- ECB official last 10 days: ${histSummary}
-- 7-day avg: ₱${avg7?avg7.toFixed(2):'N/A'} | 30-day avg: ₱${avg30?avg30.toFixed(2):'N/A'}
-- App readings (timestamps): ${localStr}
-
-Upcoming transfers scheduled:
-${dueStr}
-
-RULES: If any transfer is due in 3 days or less → always say TRANSFER NOW. Otherwise compare current rate to 7-day avg: if current > avg by 0.3+ → TRANSFER NOW. Else → WAIT and specify days. Reply in exactly 2 sentences starting with "✅ TRANSFER NOW" or "⏳ WAIT X days". Mention the due date and rate difference in PHP.`;
-
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:150,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    const data=await resp.json();
-    const text=data.content?.[0]?.text||'';
-    if(text){
-      const isTransferNow=text.toUpperCase().includes('TRANSFER NOW');
-      _rateAdviceCache={
-        text,ts:Date.now(),trend:quickTrend,avg7,avg30,
-        histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · '),
-        dueContexts,
-        urgent:isTransferNow
-      };
-      setBadge(isTransferNow);
-      if(isTransferNow) sendRateNotification(text, dueContexts);
-      render();
-    }
-  }catch(e){
-    // Fallback
-    const soonest=dueContexts.sort((a,b)=>a.daysLeft-b.daysLeft)[0];
-    let fallback='';
-    if(soonest){
-      if(soonest.daysLeft<=3)fallback=`⚠️ TRANSFER NOW — ${soonest.name} due in ${soonest.daysLeft===0?'today':soonest.daysLeft+'d'}`;
-      else if(avg7&&avg30&&avg7>avg30)fallback=`Rate is above 30-day avg (₱${avg7?avg7.toFixed(2):'?'} vs ₱${avg30?avg30.toFixed(2):'?'}). Consider transferring ${soonest.name} early.`;
-      else if(avg7&&avg30&&avg7<avg30)fallback=`Rate below 30-day avg. If ${soonest.name} not urgent (${soonest.daysLeft}d away), consider waiting.`;
-      else fallback=`Rate stable. ${soonest.name} due ${soonest.dueDate} (${soonest.daysLeft}d).`;
-    }
-    const isUrgent=fallback.includes('TRANSFER NOW');
-    _rateAdviceCache={text:fallback,ts:Date.now(),trend:quickTrend,avg7,avg30,urgent:isUrgent};
-    setBadge(isUrgent);
-    render();
-  }
+  _rateAdviceCache={text:advice,ts:Date.now(),trend,avg7,avg30,urgent,dueContexts,
+    histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · ')};
+  setBadge(urgent);
+  if(urgent) sendRateNotification(advice,dueContexts);
+  render();
 }
+
 
 function getRateTrend(){
   // Returns cached advice (fetched async separately)
@@ -2472,7 +2455,7 @@ function render(){
     <!-- Cycle bar -->
     ${daysSinceCycleStart>0?`<div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:12px;font-weight:600;color:var(--text2)">Cycle: ${fmtE(cycleSpend)} of ${fmtE(totalCycleBudget)}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2)">Spent this cycle: ${fmtE(cycleSpend)}</div>
         <div style="font-size:11px;color:var(--text2)">day ${daysSinceCycleStart} of ${totalCycleDays}</div>
       </div>
       <div class="spend-limit-bar"><div class="spend-limit-fill" style="width:${cyclePct}%;background:${cycleBarColor}"></div></div>
@@ -2492,7 +2475,7 @@ function render(){
     sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   } else {
     cls=remainingToday<20?'warn':'ok';
-    msg='Spend up to today';
+    msg='Spend up to';
     amt=fmtE(remainingToday);
     sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   }
