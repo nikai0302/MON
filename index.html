@@ -574,7 +574,7 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Auto-moved to vault on payday (€)</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
 
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer</div><div class="s">Extra % held back from safe-to-spend</div></div>
           <div style="display:flex;align-items:center;gap:6px">
@@ -851,7 +851,7 @@ let _rateAdviceCache={text:'',ts:0,trend:'neutral'};
 async function fetchRateHistoryAndAdvise(){
   if(!rate)return;
   // Only refresh advice every 30 minutes
-  if(Date.now()-_rateAdviceCache.ts < 30*60*1000 && _rateAdviceCache.text)return;
+  if(Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return; // refresh every 5 min with rate
 
   const phpZone=document.getElementById('php-zone');
   const phpPays=S.payments.filter(p=>p.currency==='PHP');
@@ -1187,10 +1187,15 @@ function stype(t){
     desc.value='To savings vault';
     desc.placeholder='Amount to lock in vault…';
     if(hint)hint.style.display='none';
+    const a=document.getElementById('q-amt');
+    if(a)a.value='';
   } else {
     desc.value='';
     desc.placeholder=t==='income'?'e.g. Bonus, freelance…':'Description…';
     if(hint)hint.style.display='none';
+    // Clear amount when switching away from salary
+    const a=document.getElementById('q-amt');
+    if(a)a.value='';
   }
 }
 function logTx(){
@@ -1211,8 +1216,7 @@ function logTx(){
   } else {
     S.balance=parseFloat(((S.balance||0)+(isIn?amt:-amt)).toFixed(2));
     S.transactions.push({id:Date.now(),type:ltype,desc,cat,amt,date:dateVal});
-    // On salary: auto-move savings target to vault
-    // Vault is manual — user deposits to vault themselves
+    // Vault is manual — savings target only affects safe-to-spend calculation
   }
   // streak check: did today's total spend stay under daily limit?
   const r2=rate||63.5;const{total:billsEur}=billsBefore();const sav=S.savingsTarget||0;
@@ -2283,7 +2287,7 @@ function render(){
   </div>`;
   localStorage.setItem('mon_prev_nw',netWorth.toFixed(2));
   // Vault
-  document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Auto-filled on payday · tap Deposit to add more</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
+  document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Manual savings — deposit anytime from balance</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
   // Streak
   const days7=[];const today=new Date();
   for(let i=6;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');days7.push(S.streakData?.[ds]===true)}
@@ -2571,7 +2575,7 @@ window.addEventListener('load',()=>{
   if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
   applyToggles();
   fetchRate();
-  setInterval(fetchRate,5*60*1000);
+  setInterval(fetchRate,60*1000); // fetch rate every minute for live updates
   setInterval(render,60*1000);
   // Register service worker — forces update check on every load
   if('serviceWorker' in navigator){
