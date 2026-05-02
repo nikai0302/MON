@@ -448,6 +448,7 @@ select.stinp{cursor:pointer}
     <!-- OVERVIEW -->
     <div id="tab-overview" class="tab active">
       <div id="daily-banner"></div>
+      <div id="php-urgent-zone"></div>
       <div id="ovd-zone"></div>
       <!-- Net worth snapshot -->
       <!-- Section visibility toggles -->
@@ -1001,10 +1002,21 @@ async function fetchRateHistoryAndAdvise(){
     trend='stable';
   }
 
-  _rateAdviceCache={text:advice,ts:Date.now(),trend,avg7,avg30,urgent,dueContexts,
+  // Check ALL PHP bills — badge/notify if any are urgent
+  const allUrgent=dueContexts.filter(d=>{
+    if(d.daysLeft<=3)return true;
+    if(avg7&&(rate-avg7)>=0.15)return true;
+    if(avg7&&(rate-avg7)<-0.15&&d.daysLeft<=5)return true;
+    return false;
+  });
+  const anyUrgent=allUrgent.length>0;
+  _rateAdviceCache={text:advice,ts:Date.now(),trend,avg7,avg30,urgent:anyUrgent,dueContexts,
     histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · ')};
-  setBadge(urgent);
-  if(urgent) sendRateNotification(advice,dueContexts);
+  setBadge(anyUrgent);
+  if(anyUrgent) sendRateNotification(
+    allUrgent.map(d=>d.daysLeft<=3?'⚠️ '+d.name+' due in '+(d.daysLeft===0?'TODAY':d.daysLeft+'d'):'📈 '+d.name+' — good rate now').join(' | '),
+    allUrgent
+  );
   render();
 }
 
@@ -1133,7 +1145,18 @@ function ST(t,pushState=true){
   if(t==='goals')renderGoals();
   if(t==='calendar')renderCalView();
   // Clear badge when user views Bills tab (they saw the TapTap advice)
-  if(t==='payments')setBadge(false);
+  if(t==='payments'){
+    setBadge(false);
+    // Show in-app toast if any PHP bill needs action
+    const cache=_rateAdviceCache;
+    if(cache.dueContexts&&cache.dueContexts.length){
+      const urgentBills=cache.dueContexts.filter(d=>d.daysLeft<=3||(cache.avg7&&(rate||0)-cache.avg7>=0.15));
+      if(urgentBills.length){
+        const msg=urgentBills.map(d=>d.daysLeft<=3?d.name+' due in '+(d.daysLeft===0?'today':d.daysLeft+'d'):d.name+' — rate is good now').join(', ');
+        setTimeout(()=>showToast('💸 Transfer now: '+msg, 4000), 400);
+      }
+    }
+  }
   // Push to browser history so back button navigates within app
   if(pushState && t!==currentTab){
     history.pushState({tab:t},'',window.location.pathname+'#'+t);
@@ -2521,31 +2544,68 @@ function render(){
   }
 
   // PHP zone
-  const phpPays=S.payments.filter(p=>p.currency==='PHP');
-  const rateTrend=getRateTrend();
-  const trendIcon=rateTrend?.trend==='up'?'📈':rateTrend?.trend==='down'?'📉':'➡️';
-  const trendColor=rateTrend?.trend==='up'?'var(--green-d)':rateTrend?.trend==='down'?'var(--red-d)':'var(--php-d)';
-  const trendBg=rateTrend?.trend==='up'?'var(--green-l)':rateTrend?.trend==='down'?'var(--red-l)':'var(--php-l)';
-  document.getElementById('php-zone').innerHTML=phpPays.length&&rate?(
-    // Rate advice banner
-    (rateTrend?`<div style="background:${trendBg};border-radius:var(--r);padding:14px 18px;margin-bottom:10px;border:.5px solid rgba(124,92,191,.2)">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
-        <span style="font-size:18px">${trendIcon}</span>
-        <span style="font-size:12px;font-weight:700;color:${trendColor};text-transform:uppercase;letter-spacing:.04em">TapTap rate advice</span>
-      </div>
-      <div style="font-size:13px;color:${trendColor};font-weight:600;line-height:1.5">${rateTrend.advice}</div>
-      <div style="font-size:11px;color:var(--text2);margin-top:4px">Current: ₱${rate.toFixed(2)}/€${rateTrend.avg7?` · 7d avg ₱${rateTrend.avg7.toFixed(2)}`:''} ${rateTrend.avg30?`· 30d avg ₱${rateTrend.avg30.toFixed(2)}`:''}</div>
-      ${rateTrend.histSummary?`<div style="font-size:10px;color:var(--text2);margin-top:3px;opacity:.7">${rateTrend.histSummary}</div>`:''}
-    </div>`:'')
-    +phpPays.map(p=>{const en=p.amountPhp/r2;const bd=nextBillDate(p);const daysLeft=daysUntil(bd);
-    return`<div class="php-card"><div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div>
-    <div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div>
-    <div class="phpc-row"><span class="phpc-lbl">Your cost today</span><span class="phpc-val">${fmtE(en)}</span></div>
-    <div class="phpc-row"><span class="phpc-lbl">Rate (TapTap est.)</span><span class="phpc-val">₱${r2.toFixed(2)}/€</span></div>
-    <div class="phpc-row"><span class="phpc-lbl">Due</span><span class="phpc-val">${fmtShort(bd)} · ${daysLeft}d</span></div>
-    ${daysLeft<=3?`<div style="background:var(--warn-l);border-radius:var(--rx);padding:8px 10px;margin-top:8px;font-size:12px;font-weight:600;color:var(--warn-d)">⚠️ Due in ${daysLeft===0?'today':daysLeft+'d'} — transfer soon!</div>`:''}
-    </div>`;}).join('')
-  ):'';
+  const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
+  const rt=getRateTrend();
+  // Show ovd-style alert on home if any PHP bill is urgent
+  const phpUrgentZone=document.getElementById('php-urgent-zone');
+  if(phpUrgentZone&&rate){
+    const urgentPhp=phpPays.filter(p=>{
+      const dl=daysUntil(nextBillDate(p));
+      const avg7rt=rt?.avg7||null;
+      return dl<=3||(avg7rt&&(rate-avg7rt)>=0.15);
+    });
+    phpUrgentZone.innerHTML=urgentPhp.length?`<div class="ovd" style="background:linear-gradient(135deg,#ddeeff,#c8e4ff);border:.5px solid rgba(91,155,213,.3)">
+      <div class="ovd-title" style="color:var(--blue-d)">💸 TapTap — Action needed</div>
+      ${urgentPhp.map(p=>{
+        const dl=daysUntil(nextBillDate(p));
+        const avg7rt=rt?.avg7||null;
+        const msg=dl<=3?'Due in '+(dl===0?'TODAY':dl+'d')+' — transfer now':(avg7rt?'Rate ₱'+(rate-avg7rt).toFixed(2)+' above avg — transfer now':'Transfer now');
+        return`<div class="ovd-row"><span class="ovd-lbl">🇵🇭 ${p.name}: ${msg}</span><button class="ovd-btn" style="background:var(--blue-d)" onclick="ST('payments')">View</button></div>`;
+      }).join('')}
+    </div>`:'';
+  } // global rate trend for reference
+  const avg7=rt?.avg7||null;
+  const avg30=rt?.avg30||null;
+
+  // Per-bill advice function
+  function billAdvice(daysLeft, amountPhp){
+    const r2=rate||63.5;
+    const todayCost=(amountPhp/r2).toFixed(2);
+    if(daysLeft<=0) return{text:'⚠️ DUE TODAY — transfer immediately!',bg:'var(--red-l)',color:'var(--red-d)'};
+    if(daysLeft<=3) return{text:'⚠️ Due in '+daysLeft+'d — transfer now, no time to wait.',bg:'var(--warn-l)',color:'var(--warn-d)'};
+    if(avg7){
+      const diff=rate-avg7;
+      const diffPHP=Math.abs((diff*(amountPhp/rate))).toFixed(0);
+      if(diff>=0.15){
+        return{text:'📈 Rate ₱'+diff.toFixed(2)+' above 7d avg — good time to transfer now (save ~₱'+diffPHP+'). Due in '+daysLeft+'d.',bg:'var(--green-l)',color:'var(--green-d)'};
+      } else if(diff<=-0.15){
+        const waitDays=Math.min(daysLeft-2,7);
+        if(waitDays>=2) return{text:'📉 Rate ₱'+Math.abs(diff).toFixed(2)+' below 7d avg. Wait '+(waitDays)+'d for possible improvement (~₱'+diffPHP+' at stake). Due in '+daysLeft+'d.',bg:'var(--blue-l)',color:'var(--blue-d)'};
+        return{text:'📉 Rate below avg but due soon ('+daysLeft+'d) — transfer now.',bg:'var(--warn-l)',color:'var(--warn-d)'};
+      }
+      return{text:'➡️ Rate stable (₱'+rate.toFixed(2)+'/€ vs 7d avg ₱'+avg7.toFixed(2)+'). Transfer anytime before '+daysLeft+'d.',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)'};
+    }
+    // No historical data
+    if(daysLeft<=7) return{text:'⚠️ Due in '+daysLeft+'d — transfer soon.',bg:'var(--warn-l)',color:'var(--warn-d)'};
+    return{text:'ℹ️ Due in '+daysLeft+'d · Rate ₱'+rate.toFixed(2)+'/€ · cost €'+todayCost+'.',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)'};
+  }
+
+  document.getElementById('php-zone').innerHTML=phpPays.length&&rate?
+    phpPays.map(p=>{
+      const en=p.amountPhp/r2;
+      const bd=nextBillDate(p);
+      const daysLeft=daysUntil(bd);
+      const advice=billAdvice(daysLeft,p.amountPhp);
+      return`<div class="php-card">
+        <div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div>
+        <div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div>
+        <div class="phpc-row"><span class="phpc-lbl">Your cost today</span><span class="phpc-val">${fmtE(en)}</span></div>
+        <div class="phpc-row"><span class="phpc-lbl">Rate (TapTap est.)</span><span class="phpc-val">₱${r2.toFixed(2)}/€</span></div>
+        <div class="phpc-row"><span class="phpc-lbl">Due</span><span class="phpc-val">${fmtShort(bd)} · ${daysLeft}d</span></div>
+        <div style="background:${advice.bg};border-radius:var(--rx);padding:9px 12px;margin-top:10px;font-size:12px;font-weight:600;color:${advice.color};line-height:1.4">${advice.text}</div>
+      </div>`;
+    }).join('')
+  :'';
   // Payments list
   const pl=document.getElementById('pay-list');const pd2=getNextPayday();
   if(!S.payments.length){pl.innerHTML='<div class="empty-r">No payments added yet</div>'}
