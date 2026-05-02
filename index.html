@@ -920,25 +920,33 @@ async function fetchRateHistoryAndAdvise(){
   // ── Due date context for each PHP bill ──
   const dueContexts=phpPays.map(p=>{
     const bd=nextBillDate(p);
-    const dl=daysUntil(bd);
+    const daysToP=daysUntil(bd);
     const r2=rate||63.5;
-    return{name:p.name,amountPhp:p.amountPhp,amountEur:(p.amountPhp/r2).toFixed(2),daysLeft:dl,dueDate:bd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
+    return{name:p.name,amountPhp:p.amountPhp,amountEur:(p.amountPhp/r2).toFixed(2),daysLeft:daysToP,dueDate:bd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
   });
 
-  // ── Fetch 30-day EUR/PHP historical data from Frankfurter (ECB source) ──
+  // ── Fetch 30-day EUR/PHP historical data ──
   let historicalRates=[];
-  try{
-    const end=new Date();
-    const start=new Date(end.getTime()-30*24*3600*1000);
-    const fmt=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    const resp=await fetch(`https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?from=EUR&to=PHP`);
-    const data=await resp.json();
-    if(data.rates){
-      historicalRates=Object.entries(data.rates)
-        .sort((a,b)=>a[0].localeCompare(b[0]))
-        .map(([date,r])=>({date,rate:r.PHP}));
-    }
-  }catch(e){}
+  const fmtD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const histEnd=new Date();
+  const histStart=new Date(histEnd.getTime()-30*24*3600*1000);
+  const histApis=[
+    `https://api.frankfurter.app/${fmtD(histStart)}..${fmtD(histEnd)}?from=EUR&to=PHP`,
+    `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${fmtD(histStart)}/v1/currencies/eur.json`
+  ];
+  for(const url of histApis){
+    try{
+      const resp=await fetch(url,{signal:AbortSignal.timeout(5000)});
+      const data=await resp.json();
+      if(data.rates&&Object.keys(data.rates).length>0){
+        historicalRates=Object.entries(data.rates)
+          .filter(([,v])=>v.PHP||typeof v==='number')
+          .sort((a,b)=>a[0].localeCompare(b[0]))
+          .map(([date,r])=>({date,rate:r.PHP||r}));
+        if(historicalRates.length>0)break;
+      }
+    }catch(e){}
+  }
 
   const r30=historicalRates.slice(-30);
   const r7=historicalRates.slice(-7);
@@ -963,6 +971,8 @@ async function fetchRateHistoryAndAdvise(){
     const dueStr=dueContexts.map(d=>`${d.name} (₱${d.amountPhp.toLocaleString()}) due ${d.dueDate} — ${d.daysLeft===0?'TODAY':d.daysLeft+'d away'}`).join('; ');
     const localStr=localHistory.slice(-8).map(h=>{const t=new Date(h.t);return t.toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+': ₱'+h.r.toFixed(2);}).join(', ')||'none yet';
 
+    // Add timestamp to force fresh response each time
+    const ts=new Date().toLocaleTimeString('en-GB');
     const prompt=`You are a financial assistant for a Filipino expat in Europe sending remittances via TapTap Send.
 
 EUR/PHP rate data:
@@ -974,7 +984,7 @@ EUR/PHP rate data:
 Upcoming transfers scheduled:
 ${dueStr}
 
-Give a SHORT, DIRECT recommendation (max 2 sentences). Must say either "TRANSFER NOW" or "WAIT X days". Factor in: (1) is current rate above or below recent avg, (2) how many days until the due date — if due in 3 days or less, always recommend transferring now regardless of rate. Be specific with PHP amounts saved/lost.`;
+RULES: If any transfer is due in 3 days or less → always say TRANSFER NOW. Otherwise compare current rate to 7-day avg: if current > avg by 0.3+ → TRANSFER NOW. Else → WAIT and specify days. Reply in exactly 2 sentences starting with "✅ TRANSFER NOW" or "⏳ WAIT X days". Mention the due date and rate difference in PHP.`;
 
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
@@ -2473,21 +2483,18 @@ function render(){
   let cls,msg,amt,sub;
   if(bal<=0){
     cls='bad';msg='Balance empty — avoid spending until payday.';amt='€0';
-    sub='Payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(safe<=0){
     cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
-    cls='warn';
-    msg='Daily limit reached — you have spent '+fmtE(todaySpend)+' today.';
-    amt=fmtE(safe);
-    sub='Pool remaining: '+fmtE(safe)+' ÷ '+dl+'d = '+fmtE(dailyLimit)+'/day tomorrow · payday in '+dl+'d';
+    cls='warn';msg='Daily limit reached for today';amt='€0';
+    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   } else {
     cls=remainingToday<20?'warn':'ok';
-    msg='Spend up to';
+    msg='Spend up to today';
     amt=fmtE(remainingToday);
-    // Show pool = totalCycleBudget, spent = cycleSpend, remaining = safe, daily = safe/dl
-    sub='Pool '+fmtE(totalCycleBudget)+' · spent '+fmtE(cycleSpend)+' · '+fmtE(safe)+' left ÷ '+dl+'d = '+fmtE(dailyLimit)+'/day · payday in '+dl+'d';
+    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
