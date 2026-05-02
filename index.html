@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,minimum-scale=1.0,user-scalable=no,viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="MON"/>
@@ -848,90 +848,170 @@ function trackRate(mid){
 // Cache for AI advice to avoid re-fetching every render
 let _rateAdviceCache={text:'',ts:0,trend:'neutral'};
 
+// ── App badge (red dot on home screen icon) ──
+function setBadge(show){
+  if('setAppBadge' in navigator){
+    if(show){
+      navigator.setAppBadge(1).catch(()=>{});
+    } else {
+      navigator.clearAppBadge().catch(()=>{});
+    }
+  }
+}
+
+// ── Push notification (shown even when app is closed) ──
+async function sendRateNotification(advice, dueContexts){
+  // Only notify if we haven't notified in last 4 hours
+  const lastNotif=parseInt(localStorage.getItem('mon_last_notif')||'0');
+  if(Date.now()-lastNotif < 4*60*60*1000)return;
+
+  // Request notification permission
+  if(!('Notification' in window))return;
+  let perm=Notification.permission;
+  if(perm==='default'){
+    perm=await Notification.requestPermission();
+  }
+  if(perm!=='granted')return;
+
+  // Build notification
+  const soonest=dueContexts?dueContexts.sort((a,b)=>a.daysLeft-b.daysLeft)[0]:null;
+  const title='💸 TapTap: Transfer Now';
+  const body=soonest
+    ? `Rate ₱${(rate||0).toFixed(2)}/€ — ${soonest.name} due in ${soonest.daysLeft===0?'TODAY':soonest.daysLeft+'d'}. `+advice.slice(0,80)
+    : advice.slice(0,100);
+
+  // Use service worker to show notification (works when app is in background)
+  if('serviceWorker' in navigator){
+    const reg=await navigator.serviceWorker.ready;
+    reg.showNotification(title,{
+      body,
+      icon:'./manifest.json', // fallback icon
+      badge:'./manifest.json',
+      tag:'taptap-rate',       // replaces previous notification
+      renotify:true,
+      data:{url:'./index.html#payments'},
+      actions:[{action:'open',title:'View Bills'}]
+    }).catch(()=>{
+      // Fallback: in-app notification if SW fails
+      new Notification(title,{body,tag:'taptap-rate'});
+    });
+  } else {
+    new Notification(title,{body,tag:'taptap-rate'});
+  }
+  localStorage.setItem('mon_last_notif',Date.now().toString());
+}
+
+// Request notification permission on first rate advice
+async function requestNotifPermission(){
+  if(!('Notification' in window))return;
+  if(Notification.permission==='default'){
+    await Notification.requestPermission();
+  }
+}
+
 async function fetchRateHistoryAndAdvise(){
   if(!rate)return;
-  // Only refresh advice every 30 minutes
-  if(Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return; // refresh every 5 min with rate
+  // Refresh every 5 minutes
+  if(Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return;
 
-  const phpZone=document.getElementById('php-zone');
-  const phpPays=S.payments.filter(p=>p.currency==='PHP');
+  const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
   if(!phpPays.length)return;
 
-  // ── Step 1: Fetch 30-day EUR/PHP historical data ──
+  // ── Due date context for each PHP bill ──
+  const dueContexts=phpPays.map(p=>{
+    const bd=nextBillDate(p);
+    const dl=daysUntil(bd);
+    const r2=rate||63.5;
+    return{name:p.name,amountPhp:p.amountPhp,amountEur:(p.amountPhp/r2).toFixed(2),daysLeft:dl,dueDate:bd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
+  });
+
+  // ── Fetch 30-day EUR/PHP historical data from Frankfurter (ECB source) ──
   let historicalRates=[];
   try{
-    // Use frankfurter.app — free, no key, reliable ECB data
     const end=new Date();
     const start=new Date(end.getTime()-30*24*3600*1000);
     const fmt=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    const url=`https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?from=EUR&to=PHP`;
-    const resp=await fetch(url);
+    const resp=await fetch(`https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?from=EUR&to=PHP`);
     const data=await resp.json();
     if(data.rates){
       historicalRates=Object.entries(data.rates)
         .sort((a,b)=>a[0].localeCompare(b[0]))
         .map(([date,r])=>({date,rate:r.PHP}));
     }
-  }catch(e){console.log('Historical rate fetch failed',e);}
+  }catch(e){}
 
-  // ── Step 2: Get locally stored readings ──
-  let localHistory=[];
-  try{localHistory=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');}catch(e){}
-
-  // ── Step 3: Build summary for AI ──
   const r30=historicalRates.slice(-30);
   const r7=historicalRates.slice(-7);
   const avg30=r30.length?r30.reduce((a,h)=>a+h.rate,0)/r30.length:null;
   const avg7=r7.length?r7.reduce((a,h)=>a+h.rate,0)/r7.length:null;
-  const oldest30=r30.length?r30[0].rate:null;
-  const newest=historicalRates.length?historicalRates[historicalRates.length-1].rate:null;
 
-  // Quick local trend first (shows instantly)
-  let quickTrend='neutral',quickAdv='';
+  // Local readings
+  let localHistory=[];
+  try{localHistory=JSON.parse(localStorage.getItem('mon_rate_history')||'[]');}catch(e){}
+
+  // Determine trend
+  let quickTrend='neutral';
   if(avg7&&avg30){
-    const diff7vs30=(avg7-avg30)/avg30*100;
-    if(diff7vs30>=0.3){quickTrend='up';quickAdv='📈 Rate trending UP vs 30-day average (+'+diff7vs30.toFixed(1)+'%)';}
-    else if(diff7vs30<=-0.3){quickTrend='down';quickAdv='📉 Rate trending DOWN vs 30-day average ('+diff7vs30.toFixed(1)+'%)';}
-    else{quickTrend='stable';quickAdv='➡️ Rate stable vs 30-day average';}
+    const d=(avg7-avg30)/avg30*100;
+    if(d>=0.3)quickTrend='up';
+    else if(d<=-0.3)quickTrend='down';
   }
 
-  // ── Step 4: Ask Claude for smart advice ──
+  // ── Ask Claude with due date context ──
   try{
-    const histSummary=r30.slice(-10).map(h=>`${h.date}: ₱${h.rate.toFixed(2)}`).join(', ');
-    const prompt=`EUR/PHP exchange rate data:
-- Current TapTap estimated rate: ₱${rate.toFixed(2)}/€
-- ECB market rate today: ₱${ecbRate?ecbRate.toFixed(2):'N/A'}/€
-- Last 10 days (Frankfurter/ECB): ${histSummary}
-- 7-day avg: ₱${avg7?avg7.toFixed(2):'N/A'} | 30-day avg: ₱${avg30?avg30.toFixed(2):'N/A'}
-- Local app readings (last 5): ${localHistory.slice(-5).map(h=>'₱'+h.r.toFixed(2)).join(', ')||'none yet'}
+    const histSummary=r30.slice(-10).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(', ');
+    const dueStr=dueContexts.map(d=>`${d.name} (₱${d.amountPhp.toLocaleString()}) due ${d.dueDate} — ${d.daysLeft===0?'TODAY':d.daysLeft+'d away'}`).join('; ');
+    const localStr=localHistory.slice(-8).map(h=>{const t=new Date(h.t);return t.toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+': ₱'+h.r.toFixed(2);}).join(', ')||'none yet';
 
-The user sends money to Philippines via TapTap Send. In 2 sentences max: should they transfer today or wait? State clearly if rate is good/bad vs recent trend. Be specific with numbers.`;
+    const prompt=`You are a financial assistant for a Filipino expat in Europe sending remittances via TapTap Send.
+
+EUR/PHP rate data:
+- Live TapTap rate NOW: ₱${rate.toFixed(2)}/€ (ECB market: ₱${ecbRate?ecbRate.toFixed(2):'N/A'}/€)
+- ECB official last 10 days: ${histSummary}
+- 7-day avg: ₱${avg7?avg7.toFixed(2):'N/A'} | 30-day avg: ₱${avg30?avg30.toFixed(2):'N/A'}
+- App readings (timestamps): ${localStr}
+
+Upcoming transfers scheduled:
+${dueStr}
+
+Give a SHORT, DIRECT recommendation (max 2 sentences). Must say either "TRANSFER NOW" or "WAIT X days". Factor in: (1) is current rate above or below recent avg, (2) how many days until the due date — if due in 3 days or less, always recommend transferring now regardless of rate. Be specific with PHP amounts saved/lost.`;
 
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         model:'claude-sonnet-4-20250514',
-        max_tokens:120,
+        max_tokens:150,
         messages:[{role:'user',content:prompt}]
       })
     });
     const data=await resp.json();
     const text=data.content?.[0]?.text||'';
     if(text){
+      const isTransferNow=text.toUpperCase().includes('TRANSFER NOW');
       _rateAdviceCache={
-        text,
-        ts:Date.now(),
-        trend:quickTrend,
-        avg7,avg30,
-        histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · ')
+        text,ts:Date.now(),trend:quickTrend,avg7,avg30,
+        histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · '),
+        dueContexts,
+        urgent:isTransferNow
       };
-      // Re-render the php zone with new advice
+      setBadge(isTransferNow);
+      if(isTransferNow) sendRateNotification(text, dueContexts);
       render();
     }
   }catch(e){
-    // Fallback to local trend only
-    _rateAdviceCache={text:quickAdv,ts:Date.now(),trend:quickTrend,avg7,avg30};
+    // Fallback
+    const soonest=dueContexts.sort((a,b)=>a.daysLeft-b.daysLeft)[0];
+    let fallback='';
+    if(soonest){
+      if(soonest.daysLeft<=3)fallback=`⚠️ TRANSFER NOW — ${soonest.name} due in ${soonest.daysLeft===0?'today':soonest.daysLeft+'d'}`;
+      else if(avg7&&avg30&&avg7>avg30)fallback=`Rate is above 30-day avg (₱${avg7?avg7.toFixed(2):'?'} vs ₱${avg30?avg30.toFixed(2):'?'}). Consider transferring ${soonest.name} early.`;
+      else if(avg7&&avg30&&avg7<avg30)fallback=`Rate below 30-day avg. If ${soonest.name} not urgent (${soonest.daysLeft}d away), consider waiting.`;
+      else fallback=`Rate stable. ${soonest.name} due ${soonest.dueDate} (${soonest.daysLeft}d).`;
+    }
+    const isUrgent=fallback.includes('TRANSFER NOW');
+    _rateAdviceCache={text:fallback,ts:Date.now(),trend:quickTrend,avg7,avg30,urgent:isUrgent};
+    setBadge(isUrgent);
     render();
   }
 }
@@ -1059,6 +1139,8 @@ function ST(t,pushState=true){
   ['overview','history','payments','goals','calendar','settings'].forEach((n,i)=>{if(n===t)document.querySelectorAll('.nb')[i].classList.add('active')});
   if(t==='goals')renderGoals();
   if(t==='calendar')renderCalView();
+  // Clear badge when user views Bills tab (they saw the TapTap advice)
+  if(t==='payments')setBadge(false);
   // Push to browser history so back button navigates within app
   if(pushState && t!==currentTab){
     history.pushState({tab:t},'',window.location.pathname+'#'+t);
@@ -2600,6 +2682,7 @@ window.addEventListener('load',()=>{
     });
   }
   setupSwipe();
+  requestNotifPermission();
   addSwipeDownToClose('pf-sheet', closePF);
   addSwipeDownToClose('gf-sheet', closeGF);
   addSwipeDownToClose('etx-sheet', closeETX);
