@@ -1159,7 +1159,7 @@ function ST(t,pushState=true){
   }
   // Push to browser history so back button navigates within app
   if(pushState && t!==currentTab){
-    history.pushState({tab:t},'',window.location.pathname+'#'+t);
+    try{history.pushState({tab:t},'',window.location.pathname+'#'+t);}catch(e){}
   }
   currentTab=t;
 }
@@ -2421,14 +2421,15 @@ function render(){
   // Cycle spend progress vs ideal
   const cyclePct=totalCycleBudget>0?Math.min(100,Math.round(cycleSpend/totalCycleBudget*100)):0;
   const cycleBarColor=cyclePct<60?'var(--green)':cyclePct<85?'var(--warn)':'var(--red)';
-  // Message: is user ahead or behind their ideal pace?
-  const idealSpentSoFar=idealDailyBudget*daysSinceCycleStart;
-  const spendingDiff=cycleSpend-idealSpentSoFar; // positive = overspending, negative = under
+  // Pool status message — simple and clear
   let paceMsg='';
-  if(daysSinceCycleStart>0){
-    if(spendingDiff>5) paceMsg=`⚠️ ${fmtE(spendingDiff)} over ideal pace — daily limit reduced`;
-    else if(spendingDiff<-5) paceMsg=`✅ ${fmtE(Math.abs(spendingDiff))} under pace — you can spend a bit more`;
-    else paceMsg='✓ On track with your budget';
+  if(safe<=0&&cycleSpend>0){
+    paceMsg='⚠️ Pool exceeded — avoid spending until payday';
+  } else if(safe>0&&cycleSpend>0){
+    const origPool=totalCycleBudget;
+    const usedPct=Math.round(cycleSpend/origPool*100);
+    if(usedPct>=80) paceMsg='⚠️ '+usedPct+'% of pool used — spend carefully';
+    else if(usedPct>=50) paceMsg=''+usedPct+'% of pool used this cycle';
   }
   document.getElementById('spend-limit-zone').innerHTML=`<div class="scard" style="margin-bottom:16px;padding:16px 20px">
     <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">💳 Your spending plan</div>
@@ -2454,17 +2455,17 @@ function render(){
     </div>
 
     <!-- MON's suggested daily budget -->
-    <div style="background:linear-gradient(135deg,var(--purple-l),var(--pink-l));border-radius:var(--rs);padding:14px 16px;margin-bottom:12px;border:.5px solid rgba(155,109,206,.2)">
-      <div style="font-size:11px;font-weight:700;color:var(--purple-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">MON suggests · spend max today</div>
+    <div style="background:${safe<=0?'linear-gradient(135deg,var(--red-l),#fdd8d8)':'linear-gradient(135deg,var(--purple-l),var(--pink-l))'};border-radius:var(--rs);padding:14px 16px;margin-bottom:12px;border:.5px solid ${safe<=0?'rgba(224,85,85,.2)':'rgba(155,109,206,.2)'}">
+      <div style="font-size:11px;font-weight:700;color:${safe<=0?'var(--red-d)':'var(--purple-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">MON suggests · spend max today</div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
-        <div style="font-size:32px;font-weight:800;color:var(--purple-d);letter-spacing:-.5px">${fmtE(dailyLimit)}</div>
-        <div style="font-size:13px;color:var(--purple);font-weight:600">per day</div>
+        <div style="font-size:32px;font-weight:800;color:${safe<=0?'var(--red-d)':'var(--purple-d)'};letter-spacing:-.5px">${fmtE(dailyLimit)}</div>
+        <div style="font-size:13px;color:${safe<=0?'var(--red)':'var(--purple)'};font-weight:600">per day</div>
       </div>
-      <div style="font-size:12px;color:var(--purple-d);opacity:.8;line-height:1.5">
-        ${fmtE(safe)} spendable ÷ ${dl} days to payday
+      <div style="font-size:12px;color:${safe<=0?'var(--red-d)':'var(--purple-d)'};opacity:.85;line-height:1.5">
+        ${safe>0?fmtE(safe)+' left ÷ '+dl+' days to payday':'No spendable pool remaining'}
         ${paceMsg?`<br><strong>${paceMsg}</strong>`:''}
       </div>
-      ${cycleSpend>0?`<div style="margin-top:8px;font-size:12px;color:var(--purple-d);opacity:.7">This cycle you've spent ${fmtE(cycleSpend)} so far</div>`:''}
+      ${cycleSpend>0?`<div style="margin-top:8px;font-size:12px;color:${safe<=0?'var(--red-d)':'var(--purple-d)'};opacity:.7">Spent ${fmtE(cycleSpend)} this cycle · original pool ${fmtE(totalCycleBudget)}</div>`:''}
     </div>
 
     <!-- Today's bar -->
@@ -2489,18 +2490,21 @@ function render(){
   let cls,msg,amt,sub;
   if(bal<=0){
     cls='bad';msg='Balance empty — avoid spending until payday.';amt='€0';
-    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
-  } else if(safe<=0){
-    cls='bad';msg='Bills and savings exceed your balance.';amt='€0';
     sub='Payday in '+dl+' day'+(dl!==1?'s':'');
+  } else if(safe<=0){
+    // Pool fully used or exceeded
+    cls='bad';
+    msg=cycleSpend>0?'Spending pool exhausted for this cycle':'Bills and savings exceed your balance.';
+    amt='€0';
+    sub=(cycleSpend>0?'Spent '+fmtE(cycleSpend)+' · pool was '+fmtE(totalCycleBudget):'')+' · payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
     cls='warn';msg='Daily limit reached for today';amt='€0';
-    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Pool '+fmtE(safe)+' left · payday in '+dl+' day'+(dl!==1?'s':'');
   } else {
     cls=remainingToday<20?'warn':'ok';
     msg='Spend up to';
     amt=fmtE(remainingToday);
-    sub='Pool '+fmtE(safe)+' · payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Pool '+fmtE(safe)+' left · payday in '+dl+' day'+(dl!==1?'s':'');
   }
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
   // Overdue
@@ -2743,7 +2747,7 @@ window.addEventListener('load',()=>{
   addSwipeDownToClose('rif-sheet', closeRIF);
   addSwipeDownToClose('ri-edit-sheet', closeRIEdit);
   // Push initial state so back button lands on overview, not previous page
-  history.replaceState({tab:'overview'},'',window.location.pathname+'#overview');
+  try{history.replaceState({tab:'overview'},'',window.location.pathname+'#overview');}catch(e){}
 });
 </script>
 <!-- RECURRING INCOME FORM -->
