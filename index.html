@@ -2410,7 +2410,24 @@ function render(){
   </div>`;
   localStorage.setItem('mon_prev_nw',netWorth.toFixed(2));
   // Vault
-  document.getElementById('vault-zone').innerHTML=`<div class="vault-card"><div class="vault-header"><div class="vault-icon">🏦</div><div><div class="vault-title">Savings Vault</div><div class="vault-sub">Manual savings — deposit anytime from balance</div></div></div><div class="vault-balance">${fmtE(vault)}</div><div class="vault-actions"><button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button><button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button></div></div>`;
+  const{total:billsChk}=billsBefore();const sav2=S.savingsTarget||0;
+  const vaultShortfall=parseFloat((billsChk+sav2-(S.balance||0)).toFixed(2));
+  const showCoverBtn=vaultShortfall>0&&(S.vault||0)>0;
+  document.getElementById('vault-zone').innerHTML=`<div class="vault-card">
+    <div class="vault-header"><div class="vault-icon">🏦</div><div>
+      <div class="vault-title">Savings Vault</div>
+      <div class="vault-sub">Manual savings — deposit anytime from balance</div>
+    </div></div>
+    <div class="vault-balance">${fmtE(vault)}</div>
+    ${showCoverBtn?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--warn-d);font-weight:600;line-height:1.4">
+      ⚠️ Balance short ${fmtE(vaultShortfall)} for bills before payday.
+      <button onclick="checkAndAutoCoverBills()" style="display:block;width:100%;margin-top:6px;padding:8px;background:var(--warn);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Move ${fmtE(Math.min(vaultShortfall,vault))} from vault to cover</button>
+    </div>`:''}
+    <div class="vault-actions">
+      <button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button>
+      <button class="vbtn wit" onclick="vaultWithdraw()">Withdraw</button>
+    </div>
+  </div>`;
   // Streak
   const days7=[];const today=new Date();
   for(let i=6;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');days7.push(S.streakData?.[ds]===true)}
