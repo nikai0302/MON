@@ -461,6 +461,21 @@ select.stinp{cursor:pointer}
       <div id="nw-zone"></div>
       <!-- Vault -->
       <div id="vault-zone"></div>
+
+    <!-- VAULT SHEET -->
+    <div id="vault-sheet" class="sheet" style="display:none">
+      <div class="sheet-bar"></div>
+      <div class="sheet-title" id="vault-sheet-title">Deposit to Vault</div>
+      <div style="padding:0 20px 20px">
+        <div id="vault-sheet-info" style="background:var(--gold-l);border-radius:var(--rs);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--gold-d);font-weight:600;line-height:1.5"></div>
+        <div class="finp-row" style="margin-bottom:16px">
+          <label class="finp-lbl">Amount (€)</label>
+          <input id="vault-sheet-amt" class="finp" type="text" inputmode="decimal" placeholder="0,00" oninput="vaultSheetValidate()"/>
+        </div>
+        <div id="vault-sheet-error" style="display:none;background:var(--red-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--red-d);font-weight:600"></div>
+        <button id="vault-sheet-btn" class="addbtn" style="width:100%;margin:0" onclick="vaultSheetConfirm()">Confirm Deposit</button>
+      </div>
+    </div>
       <!-- Streak -->
       <div id="streak-zone"></div>
       <!-- Metrics -->
@@ -2856,6 +2871,7 @@ window.addEventListener('load',()=>{
   setupSwipe();
   requestNotifPermission();
   addSwipeDownToClose('pf-sheet', closePF);
+  addSwipeDownToClose('vault-sheet', ()=>document.getElementById('vault-sheet').style.display='none');
   addSwipeDownToClose('gf-sheet', closeGF);
   addSwipeDownToClose('etx-sheet', closeETX);
   addSwipeDownToClose('bill-edit-sheet', closeBillEdit);
