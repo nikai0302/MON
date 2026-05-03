@@ -2348,8 +2348,11 @@ function vshConfirm(){
   document.getElementById('vsh').style.display='none';
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
-  S.fixedPool=0;S.fixedPoolCycleKey='';
-  persist();render();
+  // Force pool recalculation on next render by clearing the cache key
+  // Do NOT persist yet — render() will recalculate and persist with correct value
+  S.fixedPool=0;
+  S.fixedPoolCycleKey='';
+  render(); // recalculates fixedPool first, then persists with new correct value
 }
 
 // ══════════════ SETTINGS ══════════════
@@ -2534,12 +2537,11 @@ function render(){
   // Recompute and store whenever a new cycle begins
   const cycleKey=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
   if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey){
-    // New cycle — compute pool using ALL bills due before next payday from THIS point
-    // including any that will be due between now and payday
-    const balAtCycleStart=parseFloat(((bal)+cycleSpend).toFixed(2));
+    // Compute pool from scratch: reconstruct balance at cycle start = current bal + all spending since
+    const balAtCycleStart=parseFloat((bal+cycleSpend).toFixed(2));
     const{total:allBillsForPool}=billsBeforePayday();
-    const rawSpendableAtStart=Math.max(0,balAtCycleStart-allBillsForPool-sav);
-    S.fixedPool=Math.max(0,parseFloat((rawSpendableAtStart*(1-bufferPct)).toFixed(2)));
+    const rawSpendable=Math.max(0,balAtCycleStart-allBillsForPool-sav);
+    S.fixedPool=Math.max(0,parseFloat((rawSpendable*(1-bufferPct)).toFixed(2)));
     S.fixedPoolCycleKey=cycleKey;
     persist();
   }
