@@ -1110,8 +1110,37 @@ function nextBillDate(p){
   }
   return d;
 }
+function getNextIncomeDate(){
+  // Returns the nearest upcoming income date (RI or salary), or payday if none
+  const today=new Date();today.setHours(0,0,0,0);
+  const pd=getNextPayday();
+  let nearest=pd;
+
+  // Check recurring income
+  (S.recurringIncome||[]).forEach(ri=>{
+    const rd=nextRIDate(ri);
+    if(rd>today&&rd<nearest)nearest=rd;
+  });
+  return nearest;
+}
+
 function billsBefore(){
-  // Returns bills due strictly before next payday (unchanged — used for safe-to-spend calc)
+  // Returns bills due before the NEXT income event (RI or payday)
+  // This is what the balance currently needs to cover
+  const nextIncome=getNextIncomeDate();
+  const r2=rate||63.5;let total=0;const list=[];
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+    const bd=nextBillDate(p);
+    if(bd<nextIncome){
+      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+      total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur,nextIncome});
+    }
+  });
+  return{total,list,nextIncome};
+}
+
+function billsBeforePayday(){
+  // Returns ALL bills before payday (used for pool calculation only)
   const pd=getNextPayday();const r2=rate||63.5;let total=0;const list=[];
   S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const bd=nextBillDate(p);
@@ -1124,33 +1153,24 @@ function billsBefore(){
 }
 
 function getCashflowShortfall(){
-  // Simulate day-by-day cash flow from today to payday
-  // Returns the minimum balance at any point (negative = shortfall)
-  const r2=rate||63.5;
+  // Walk day by day from today to payday
+  // Track running balance after scheduled events
+  // Returns how much balance goes negative (shortfall before any income fixes it)
   const pd=getNextPayday();
   const today=new Date();today.setHours(0,0,0,0);
   let runBal=parseFloat((S.balance||0).toFixed(2));
   let minBal=runBal;
-  let shortfallAmt=0;
-  const events=[];
-
-  // Collect all events between today and payday
   const cursor=new Date(today);
   while(cursor<pd){
     cursor.setDate(cursor.getDate()+1);
     const ds=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
-    const evs=getEventsOnDate(ds);
-    evs.forEach(ev=>{
-      if(ev.logged)return; // already in balance
-      const amt=ev.positive?ev.amt:-ev.amt;
-      events.push({ds,name:ev.name,amt,type:ev.type});
-      runBal=parseFloat((runBal+amt).toFixed(2));
+    getEventsOnDate(ds).forEach(ev=>{
+      if(ev.logged)return;
+      runBal=parseFloat((runBal+(ev.positive?ev.amt:-ev.amt)).toFixed(2));
       if(runBal<minBal)minBal=runBal;
     });
   }
-  // shortfall = how much below zero the minimum goes
-  shortfallAmt=Math.max(0,-minBal);
-  return{shortfallAmt,minBal,events};
+  return{shortfallAmt:Math.max(0,-minBal),minBal};
 }
 function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&daysUntil(nextBillDate(p))<=0)}
 
@@ -2255,9 +2275,9 @@ function vaultDeposit(){
   if(!amt||amt<=0)return;
   const bal=S.balance||0;
   // Check 1: can't deposit more than balance
-  if(amt>bal){showToast('❌ Not enough balance ('+fmtE(bal)+')');return;}
+  if(amt>bal){alert('❌ Cannot deposit '+fmtE(amt)+' — your balance is only '+fmtE(bal)+'.');return;}
   // Check 2: must leave enough to cover bills before payday
-  const{total:billsNeeded}=billsBefore();
+  const{total:billsNeeded}=billsBeforePayday(); // use ALL bills before payday for vault limit
   const sav=S.savingsTarget||0;
   const minRequired=billsNeeded+sav;
   const balAfter=bal-amt;
@@ -2379,7 +2399,8 @@ function render(){
   renderGoalsHome();
 
   const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
-  const{total:billsEur}=billsBefore();
+  const{total:billsEur,nextIncome:nextIncomeDate}=billsBefore(); // bills before next income
+  const{total:billsEurAll}=billsBeforePayday(); // all bills before payday (for pool)
   const sav=S.savingsTarget||0;
   const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
   // What's locked: bills due before payday + monthly savings target
@@ -2456,8 +2477,8 @@ function render(){
     </div></div>
     <div class="vault-balance">${fmtE(vault)}</div>
     ${showCoverBtn?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--warn-d);font-weight:600;line-height:1.4">
-      ⚠️ Cash flow shortfall: ${fmtE(vaultShortfall)} before payday (after all incomes).
-      <button onclick="checkAndAutoCoverBills()" style="display:block;width:100%;margin-top:6px;padding:8px;background:var(--warn);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Move ${fmtE(Math.min(vaultShortfall,vault))} from vault to cover</button>
+      ⚠️ Your balance may run short before payday. Tap below to move money from vault to cover the gap.
+      <button onclick="checkAndAutoCoverBills()" style="display:block;width:100%;margin-top:6px;padding:8px;background:var(--warn);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Check cash flow & cover shortfall</button>
     </div>`:''}
     <div class="vault-actions">
       <button class="vbtn dep" onclick="vaultDeposit()">＋ Deposit</button>
@@ -2483,7 +2504,8 @@ function render(){
     // New cycle — compute pool using ALL bills due before next payday from THIS point
     // including any that will be due between now and payday
     const balAtCycleStart=parseFloat(((bal)+cycleSpend).toFixed(2));
-    const rawSpendableAtStart=Math.max(0,balAtCycleStart-billsEur-sav);
+    const{total:allBillsForPool}=billsBeforePayday();
+    const rawSpendableAtStart=Math.max(0,balAtCycleStart-allBillsForPool-sav);
     S.fixedPool=Math.max(0,parseFloat((rawSpendableAtStart*(1-bufferPct)).toFixed(2)));
     S.fixedPoolCycleKey=cycleKey;
     persist();
@@ -2530,8 +2552,9 @@ function render(){
     <!-- 4-box allocation -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
       <div style="background:var(--red-l);border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:var(--red-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🔴 Bills before payday</div>
+        <div style="font-size:10px;font-weight:700;color:var(--red-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🔴 Bills before ${nextIncomeDate?nextIncomeDate.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'payday'}</div>
         <div style="font-size:16px;font-weight:800;color:var(--red-d)">${fmtE(billsEur)}</div>
+        ${billsEurAll>billsEur?`<div style="font-size:10px;color:var(--red);margin-top:2px">Total till payday: ${fmtE(billsEurAll)}</div>`:''}
       </div>
       <div style="background:var(--gold-l);border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🏦 Savings target</div>
