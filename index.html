@@ -577,9 +577,9 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
 
-        <div class="strow"><div class="stlbl"><div class="n">Spending buffer</div><div class="s">Extra % held back from safe-to-spend</div></div>
+        <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% of spendable pool held back as emergency cushion — NOT savings. E.g. 20% on €100 pool = €20 reserved, €80 safe to spend.</div></div>
           <div style="display:flex;align-items:center;gap:6px">
-            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:55px" oninput="sv()"/>
+            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
             <span style="font-size:14px;font-weight:700;color:var(--purple)">%</span>
           </div>
         </div>
@@ -2213,11 +2213,35 @@ function renderGoals(){
 
 // ══════════════ VAULT ══════════════
 function vaultDeposit(){
-  const inp=prompt('Deposit to vault (€) — current: '+fmtE(S.vault||0),'');
+  const inp=prompt('Deposit to vault (€) — balance: '+fmtE(S.balance||0),'');
   const amt=parseCur(inp);
   if(!amt||amt<=0)return;
-  if(amt>(S.balance||0)){showToast('Not enough balance');return;}
-  S.balance=parseFloat(((S.balance||0)-amt).toFixed(2));
+  const bal=S.balance||0;
+  // Check 1: can't deposit more than balance
+  if(amt>bal){showToast('❌ Not enough balance ('+fmtE(bal)+')');return;}
+  // Check 2: must leave enough to cover bills before payday
+  const{total:billsNeeded}=billsBefore();
+  const sav=S.savingsTarget||0;
+  const minRequired=billsNeeded+sav;
+  const balAfter=bal-amt;
+  if(balAfter<minRequired){
+    const maxDeposit=Math.max(0,parseFloat((bal-minRequired).toFixed(2)));
+    if(maxDeposit<=0){
+      showToast('❌ Balance needed for bills ('+fmtE(minRequired)+') — cannot deposit');return;
+    }
+    const confirm2=window.confirm('Warning: depositing '+fmtE(amt)+' leaves only '+fmtE(balAfter)+' but you need '+fmtE(minRequired)+' for bills+savings. Max safe deposit: '+fmtE(maxDeposit)+'. Deposit max safe amount instead?');
+    if(!confirm2)return;
+    // deposit max safe amount instead
+    const safeAmt=maxDeposit;
+    S.balance=parseFloat((bal-safeAmt).toFixed(2));
+    S.vault=parseFloat(((S.vault||0)+safeAmt).toFixed(2));
+    S.transactions.push({id:Date.now(),type:'vault',desc:'🏦 Vault deposit',cat:'🏦 Vault',amt:safeAmt,date:todayStr()});
+    const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+    const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
+    persist();render();
+    showToast('🏦 '+fmtE(safeAmt)+' deposited (max safe amount)');return;
+  }
+  S.balance=parseFloat((bal-amt).toFixed(2));
   S.vault=parseFloat(((S.vault||0)+amt).toFixed(2));
   S.transactions.push({id:Date.now(),type:'vault',desc:'🏦 Vault deposit',cat:'🏦 Vault',amt,date:todayStr()});
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
@@ -2291,7 +2315,8 @@ function importData(event){
         if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
       });
       document.getElementById('set-pd').value=S.payday||'last';
-  // buffer input not reset in render — sv() keeps S.bufferPct in sync, init sets the field
+  // Restore buffer field value (safe — input is standalone, not in a form)
+  const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
   // monthlyBudget field removed from settings UI
       render();
       showToast('✅ Backup restored successfully!',3000);
@@ -2460,7 +2485,7 @@ function render(){
         <div style="font-size:16px;font-weight:800;color:var(--gold-d)">${fmtE(sav)}</div>
       </div>
       <div style="background:var(--warn-l);border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
+        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%) emergency</div>
         <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferAmt)}</div>
       </div>
       <div style="background:${poolRemaining>0?'var(--green-l)':'var(--red-l)'};border-radius:var(--rx);padding:9px 11px">
@@ -2721,7 +2746,8 @@ window.addEventListener('load',()=>{
   const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
   Object.entries(fields).forEach(([id,key])=>{const el=document.getElementById('set-'+id);if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',')});
   document.getElementById('set-pd').value=S.payday||'last';
-  // buffer input not reset in render — sv() keeps S.bufferPct in sync, init sets the field
+  // Restore buffer field value (safe — input is standalone, not in a form)
+  const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
   // monthlyBudget field removed from settings UI
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
