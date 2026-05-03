@@ -2357,7 +2357,6 @@ function vshConfirm(){
 
 // ══════════════ SETTINGS ══════════════
 function sv(){
-  // Only update values that have non-empty inputs (don't overwrite programmatic changes)
   const balVal=parseCur(document.getElementById('set-bal').value);
   if(!isNaN(balVal)&&balVal>=0)S.balance=balVal;
   const vaultVal=parseCur(document.getElementById('set-vault').value);
@@ -2370,7 +2369,9 @@ function sv(){
   const buf=parseInt(document.getElementById('set-buffer').value);
   if(!isNaN(buf)&&buf>=0&&buf<=50)S.bufferPct=buf;
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
-  persist();render();
+  // Reset pool so it recalculates with new values
+  S.fixedPool=0;S.fixedPoolCycleKey='';
+  render(); // render recalculates and persists
 }
 function exportData(){
   const data=JSON.stringify(S,null,2);
@@ -2537,11 +2538,15 @@ function render(){
   // Recompute and store whenever a new cycle begins
   const cycleKey=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
   if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey){
-    // Compute pool from scratch: reconstruct balance at cycle start = current bal + all spending since
+    // Reconstruct balance at cycle start = current balance + all spending since cycle start
     const balAtCycleStart=parseFloat((bal+cycleSpend).toFixed(2));
     const{total:allBillsForPool}=billsBeforePayday();
-    const rawSpendable=Math.max(0,balAtCycleStart-allBillsForPool-sav);
-    S.fixedPool=Math.max(0,parseFloat((rawSpendable*(1-bufferPct)).toFixed(2)));
+    // Pool = (balance - bills) * (1 - buffer%)
+    // Savings target is SHOWN separately in the breakdown but does NOT reduce the pool
+    // (it would unfairly push pool to 0 when balance barely covers bills)
+    const spendableBeforeBuf=Math.max(0,balAtCycleStart-allBillsForPool);
+    const bufferReserve=parseFloat((spendableBeforeBuf*bufferPct).toFixed(2));
+    S.fixedPool=Math.max(0,parseFloat((spendableBeforeBuf-bufferReserve).toFixed(2)));
     S.fixedPoolCycleKey=cycleKey;
     persist();
   }
