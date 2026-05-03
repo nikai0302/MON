@@ -2836,23 +2836,22 @@ window.addEventListener('load',()=>{
   // Register service worker — forces update check on every load
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js').then(reg => {
-      reg.update(); // check for update immediately on load
-      // Check for updates every 2 minutes while app is open
-      setInterval(()=>reg.update(), 2*60*1000);
+      reg.update();
+      setInterval(()=>reg.update(), 60*1000); // check every minute
       reg.addEventListener('updatefound', () => {
-        const nw=reg.installing;
-        if(!nw)return;
+        const nw=reg.installing;if(!nw)return;
         nw.addEventListener('statechange', ()=>{
           if(nw.state==='installed'&&navigator.serviceWorker.controller){
-            // New version ready — reload silently
+            window.location.reload();
+          }
+          if(nw.state==='activated'){
             window.location.reload();
           }
         });
       });
     }).catch(()=>{});
-    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
-      window.location.reload();
-    });
+    // Reload whenever SW controller changes (new SW took over)
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>window.location.reload());
   }
   setupSwipe();
   requestNotifPermission();
