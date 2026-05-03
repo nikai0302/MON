@@ -462,20 +462,7 @@ select.stinp{cursor:pointer}
       <!-- Vault -->
       <div id="vault-zone"></div>
 
-    <!-- VAULT SHEET -->
-    <div id="vault-sheet" class="sheet" style="display:none">
-      <div class="sheet-bar"></div>
-      <div class="sheet-title" id="vault-sheet-title">Deposit to Vault</div>
-      <div style="padding:0 20px 20px">
-        <div id="vault-sheet-info" style="background:var(--gold-l);border-radius:var(--rs);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--gold-d);font-weight:600;line-height:1.5"></div>
-        <div class="finp-row" style="margin-bottom:16px">
-          <label class="finp-lbl">Amount (€)</label>
-          <input id="vault-sheet-amt" class="finp" type="text" inputmode="decimal" placeholder="0,00" oninput="vaultSheetValidate()"/>
-        </div>
-        <div id="vault-sheet-error" style="display:none;background:var(--red-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--red-d);font-weight:600"></div>
-        <button id="vault-sheet-btn" class="addbtn" style="width:100%;margin:0" onclick="vaultSheetConfirm()">Confirm Deposit</button>
-      </div>
-    </div>
+
       <!-- Streak -->
       <div id="streak-zone"></div>
       <!-- Metrics -->
@@ -637,6 +624,17 @@ select.stinp{cursor:pointer}
 </div>
 
 <!-- PAYMENT FORM -->
+<div class="sbg" id="vsh" onclick="closeVaultSheet(event)" style="display:none">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="vsh-title">Deposit to Vault</div>
+    <div id="vsh-info" style="background:var(--gold-l);border-radius:var(--rs);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--gold-d);font-weight:600;line-height:1.6"></div>
+    <div class="fld"><label>Amount (€)</label><input id="vsh-amt" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off" oninput="vshValidate()"/></div>
+    <div id="vsh-err" style="display:none;background:var(--red-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:8px;font-size:13px;color:var(--red-d);font-weight:600;line-height:1.4"></div>
+    <div class="sacts"><button class="bcancel" onclick="closeVaultSheet()">Cancel</button><button class="bsave" id="vsh-btn" onclick="vshConfirm()">Deposit</button></div>
+  </div>
+</div>
+
 <div class="sbg" id="pf-sheet" onclick="closePF(event)">
   <div class="sht" onclick="event.stopPropagation()">
     <div class="sh-hdl"></div>
@@ -2284,54 +2282,74 @@ function renderGoals(){
 }
 
 // ══════════════ VAULT ══════════════
-function vaultDeposit(){
-  const inp=prompt('Deposit to vault (€) — balance: '+fmtE(S.balance||0),'');
-  const amt=parseCur(inp);
-  if(!amt||amt<=0)return;
-  const bal=S.balance||0;
-  // Check 1: can't deposit more than balance
-  if(amt>bal){alert('❌ Cannot deposit '+fmtE(amt)+' — your balance is only '+fmtE(bal)+'.');return;}
-  // Check 2: must leave enough to cover bills before payday
-  const{total:billsNeeded}=billsBeforePayday(); // use ALL bills before payday for vault limit
-  const sav=S.savingsTarget||0;
-  const minRequired=billsNeeded+sav;
-  const balAfter=bal-amt;
-  if(balAfter<minRequired){
-    const maxDeposit=Math.max(0,parseFloat((bal-minRequired).toFixed(2)));
-    if(maxDeposit<=0){
-      showToast('❌ Balance needed for bills ('+fmtE(minRequired)+') — cannot deposit');return;
-    }
-    const confirm2=window.confirm('Warning: depositing '+fmtE(amt)+' leaves only '+fmtE(balAfter)+' but you need '+fmtE(minRequired)+' for bills+savings. Max safe deposit: '+fmtE(maxDeposit)+'. Deposit max safe amount instead?');
-    if(!confirm2)return;
-    // deposit max safe amount instead
-    const safeAmt=maxDeposit;
-    S.balance=parseFloat((bal-safeAmt).toFixed(2));
-    S.vault=parseFloat(((S.vault||0)+safeAmt).toFixed(2));
-    S.transactions.push({id:Date.now(),type:'vault',desc:'🏦 Vault deposit',cat:'🏦 Vault',amt:safeAmt,date:todayStr()});
-    const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-    const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
-    persist();render();
-    showToast('🏦 '+fmtE(safeAmt)+' deposited (max safe amount)');return;
-  }
-  S.balance=parseFloat((bal-amt).toFixed(2));
-  S.vault=parseFloat(((S.vault||0)+amt).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'vault',desc:'🏦 Vault deposit',cat:'🏦 Vault',amt,date:todayStr()});
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
-  persist();render();
-  showToast('🏦 '+fmtE(amt)+' deposited to vault');
+let _vaultMode='deposit';
+
+function _vaultUI(mode){
+  _vaultMode=mode;
+  const isDeposit=mode==='deposit';
+  const bal=parseFloat((S.balance||0).toFixed(2));
+  const vault=parseFloat((S.vault||0).toFixed(2));
+  const{total:bills}=billsBeforePayday();
+  const maxDep=parseFloat(Math.max(0,bal-bills).toFixed(2));
+  document.getElementById('vsh-title').textContent=isDeposit?'Deposit to Vault':'Withdraw from Vault';
+  document.getElementById('vsh-btn').textContent=isDeposit?'Deposit':'Withdraw';
+  document.getElementById('vsh-amt').value='';
+  document.getElementById('vsh-err').style.display='none';
+  document.getElementById('vsh-info').innerHTML=isDeposit
+    ?'Balance: <b>'+fmtE(bal)+'</b> &nbsp;|&nbsp; Bills before payday: <b>'+fmtE(bills)+'</b><br>Max safe deposit: <b>'+fmtE(maxDep)+'</b>'+(maxDep<=0?' &mdash; <span style="color:var(--red-d)">balance fully needed for bills</span>':'')
+    :'Vault balance: <b>'+fmtE(vault)+'</b>';
+  document.getElementById('vsh').style.display='flex';
+  setTimeout(()=>document.getElementById('vsh-amt').focus(),300);
 }
 
-function vaultWithdraw(){
-  const v=S.vault||0;if(v<=0){showToast('Vault is empty');return}
-  const inp=prompt('Withdraw from vault (€):\nVault balance: '+fmtE(v),'');
-  const amt=parseCur(inp);if(!amt||amt<=0)return;
-  if(amt>v){alert('Not enough in vault');return}
-  S.vault=parseFloat((v-amt).toFixed(2));S.balance=parseFloat(((S.balance||0)+amt).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'income',desc:'From savings vault',cat:'🏦 Vault',amt,date:todayStr()});
-  const si=document.getElementById('set-vault');if(si)si.value=S.vault.toFixed(2).replace('.',',');
+function vaultDeposit(){_vaultUI('deposit');}
+function vaultWithdraw(){if((S.vault||0)<=0){showToast('Vault is empty');return;}_vaultUI('withdraw');}
+function closeVaultSheet(e){if(e&&e.target!==document.getElementById('vsh'))return;document.getElementById('vsh').style.display='none';}
+
+function vshValidate(){
+  const amt=parseCur(document.getElementById('vsh-amt').value);
+  const errEl=document.getElementById('vsh-err');
+  if(isNaN(amt)||amt<=0){errEl.style.display='none';return false;}
+  const bal=parseFloat((S.balance||0).toFixed(2));
+  const vault=parseFloat((S.vault||0).toFixed(2));
+  let err='';
+  if(_vaultMode==='deposit'){
+    const{total:bills}=billsBeforePayday();
+    const maxDep=parseFloat(Math.max(0,bal-bills).toFixed(2));
+    if(amt>bal) err='Amount '+fmtE(amt)+' exceeds your balance of '+fmtE(bal)+'.';
+    else if(maxDep<=0) err='Cannot deposit — full balance needed for bills ('+fmtE(bills)+') before payday.';
+    else if(amt>maxDep) err='Max safe deposit is '+fmtE(maxDep)+'. Depositing '+fmtE(amt)+' leaves only '+fmtE(bal-amt)+' but bills need '+fmtE(bills)+'.';
+  } else {
+    if(amt>vault) err='Amount '+fmtE(amt)+' exceeds vault balance of '+fmtE(vault)+'.';
+  }
+  if(err){errEl.textContent='❌ '+err;errEl.style.display='';}
+  else errEl.style.display='none';
+  return !err;
+}
+
+function vshConfirm(){
+  const amt=parseCur(document.getElementById('vsh-amt').value);
+  const errEl=document.getElementById('vsh-err');
+  if(isNaN(amt)||amt<=0){errEl.textContent='❌ Enter a valid amount.';errEl.style.display='';return;}
+  if(!vshValidate())return;
+  const bal=parseFloat((S.balance||0).toFixed(2));
+  const vault=parseFloat((S.vault||0).toFixed(2));
+  if(_vaultMode==='deposit'){
+    S.balance=parseFloat((bal-amt).toFixed(2));
+    S.vault=parseFloat((vault+amt).toFixed(2));
+    S.transactions.push({id:Date.now(),type:'vault',desc:'Deposit to vault',cat:'🏦 Vault',amt,date:todayStr()});
+    showToast('🏦 '+fmtE(amt)+' moved to vault');
+  } else {
+    S.vault=parseFloat((vault-amt).toFixed(2));
+    S.balance=parseFloat((bal+amt).toFixed(2));
+    S.transactions.push({id:Date.now(),type:'income',desc:'Withdrawal from vault',cat:'🏦 Vault',amt,date:todayStr()});
+    showToast('🏦 '+fmtE(amt)+' moved to balance');
+  }
+  document.getElementById('vsh').style.display='none';
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  persist();render();showToast('🏦 Withdrawn '+fmtE(amt)+' from vault');
+  const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
+  S.fixedPool=0;S.fixedPoolCycleKey='';
+  persist();render();
 }
 
 // ══════════════ SETTINGS ══════════════
@@ -2871,7 +2889,7 @@ window.addEventListener('load',()=>{
   setupSwipe();
   requestNotifPermission();
   addSwipeDownToClose('pf-sheet', closePF);
-  addSwipeDownToClose('vault-sheet', ()=>document.getElementById('vault-sheet').style.display='none');
+  addSwipeDownToClose('vsh', ()=>document.getElementById('vsh').style.display='none');
   addSwipeDownToClose('gf-sheet', closeGF);
   addSwipeDownToClose('etx-sheet', closeETX);
   addSwipeDownToClose('bill-edit-sheet', closeBillEdit);
