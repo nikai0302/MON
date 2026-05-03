@@ -1111,9 +1111,46 @@ function nextBillDate(p){
   return d;
 }
 function billsBefore(){
+  // Returns bills due strictly before next payday (unchanged — used for safe-to-spend calc)
   const pd=getNextPayday();const r2=rate||63.5;let total=0;const list=[];
-  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{const bd=nextBillDate(p);if(bd<pd){const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur})}});
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+    const bd=nextBillDate(p);
+    if(bd<pd){
+      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+      total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur});
+    }
+  });
   return{total,list};
+}
+
+function getCashflowShortfall(){
+  // Simulate day-by-day cash flow from today to payday
+  // Returns the minimum balance at any point (negative = shortfall)
+  const r2=rate||63.5;
+  const pd=getNextPayday();
+  const today=new Date();today.setHours(0,0,0,0);
+  let runBal=parseFloat((S.balance||0).toFixed(2));
+  let minBal=runBal;
+  let shortfallAmt=0;
+  const events=[];
+
+  // Collect all events between today and payday
+  const cursor=new Date(today);
+  while(cursor<pd){
+    cursor.setDate(cursor.getDate()+1);
+    const ds=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
+    const evs=getEventsOnDate(ds);
+    evs.forEach(ev=>{
+      if(ev.logged)return; // already in balance
+      const amt=ev.positive?ev.amt:-ev.amt;
+      events.push({ds,name:ev.name,amt,type:ev.type});
+      runBal=parseFloat((runBal+amt).toFixed(2));
+      if(runBal<minBal)minBal=runBal;
+    });
+  }
+  // shortfall = how much below zero the minimum goes
+  shortfallAmt=Math.max(0,-minBal);
+  return{shortfallAmt,minBal,events};
 }
 function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&daysUntil(nextBillDate(p))<=0)}
 
@@ -2410,8 +2447,7 @@ function render(){
   </div>`;
   localStorage.setItem('mon_prev_nw',netWorth.toFixed(2));
   // Vault
-  const{total:billsChk}=billsBefore();const sav2=S.savingsTarget||0;
-  const vaultShortfall=parseFloat((billsChk+sav2-(S.balance||0)).toFixed(2));
+  const{shortfallAmt:vaultShortfall}=getCashflowShortfall();
   const showCoverBtn=vaultShortfall>0&&(S.vault||0)>0;
   document.getElementById('vault-zone').innerHTML=`<div class="vault-card">
     <div class="vault-header"><div class="vault-icon">🏦</div><div>
@@ -2420,7 +2456,7 @@ function render(){
     </div></div>
     <div class="vault-balance">${fmtE(vault)}</div>
     ${showCoverBtn?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--warn-d);font-weight:600;line-height:1.4">
-      ⚠️ Balance short ${fmtE(vaultShortfall)} for bills before payday.
+      ⚠️ Cash flow shortfall: ${fmtE(vaultShortfall)} before payday (after all incomes).
       <button onclick="checkAndAutoCoverBills()" style="display:block;width:100%;margin-top:6px;padding:8px;background:var(--warn);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Move ${fmtE(Math.min(vaultShortfall,vault))} from vault to cover</button>
     </div>`:''}
     <div class="vault-actions">
@@ -2777,22 +2813,21 @@ window.addEventListener('load',()=>{
   // Register service worker — forces update check on every load
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js').then(reg => {
-      // Check for updates immediately
-      reg.update();
-      // When a new SW is waiting, reload the page to apply it
+      reg.update(); // check for update immediately on load
+      // Check for updates every 2 minutes while app is open
+      setInterval(()=>reg.update(), 2*60*1000);
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        if(!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          if(newWorker.state === 'activated') {
-            // New version activated — reload to get fresh content
+        const nw=reg.installing;
+        if(!nw)return;
+        nw.addEventListener('statechange', ()=>{
+          if(nw.state==='installed'&&navigator.serviceWorker.controller){
+            // New version ready — reload silently
             window.location.reload();
           }
         });
       });
     }).catch(()=>{});
-    // Also listen for controller change (SW took over)
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
       window.location.reload();
     });
   }
