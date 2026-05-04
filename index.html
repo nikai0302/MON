@@ -476,7 +476,7 @@ select.stinp{cursor:pointer}
         </div>
         <div class="met pink"><div class="met-lbl">Next payday</div><div class="met-val" id="m-pd">—</div></div>
         <div class="met purp"><div class="met-lbl">Bills before payday</div><div class="met-val" id="m-bills">€0</div></div>
-        <div class="met wht"><div class="met-lbl">Safe to spend</div><div class="met-val" id="m-safe">€0</div></div>
+
       </div>
       <!-- Daily spend limit progress -->
       <div id="spend-limit-zone"></div>
@@ -2462,7 +2462,6 @@ function render(){
   const eb=document.getElementById('eye-btn');if(eb)eb.textContent=S.balanceHidden?'🙈':'👁';
   document.getElementById('m-pd').textContent=fmtShort(pd)+' ('+dl+'d)';
   document.getElementById('m-bills').textContent=fmtE(billsEur);
-  const ms=document.getElementById('m-safe');ms.textContent=fmtE(safe);ms.className='met-val'+(safe===0&&res>0?' red':safe<res*.25&&res>0?' warn':' green');
   // Net worth
   const totalGoalSaved=S.goals.reduce((a,g)=>a+g.saved,0);
   const netWorth=bal+vault; // net worth = spendable + locked vault
@@ -2514,7 +2513,13 @@ function render(){
   // Monthly savings progress (vault deposits this cycle)
   const cycleStart2=getCycleStart();
   const savedThisCycle=S.transactions
-    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='vault'&&td>=cycleStart2;})
+    .filter(t=>{
+      if(t.type!=='vault')return false;
+      // Only count deposits (positive vault moves), not withdrawals
+      if(t.desc&&(t.desc.toLowerCase().includes('withdrawal')||t.desc.toLowerCase().includes('withdraw')))return false;
+      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      return td>=cycleStart2;
+    })
     .reduce((a,t)=>a+t.amt,0);
   const savTarget=S.savingsTarget||0;
   const savPct=savTarget>0?Math.min(100,Math.round(savedThisCycle/savTarget*100)):0;
@@ -2525,7 +2530,6 @@ function render(){
       <div class="vault-title">Savings Vault</div>
       <div class="vault-sub">Deposit manually — your money, locked safely</div>
     </div></div>
-    <div class="vault-balance">${fmtE(vault)}</div>
     ${savTarget>0?`<div style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--gold-d);margin-bottom:5px">
         <span>🎯 Monthly goal: ${fmtE(savTarget)}</span>
