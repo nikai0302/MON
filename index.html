@@ -2952,14 +2952,17 @@ function render(){
   // Monthly savings progress (vault deposits this cycle)
   const cycleStart2=getCycleStart();
   // Only count explicit vault deposits made this cycle (not vault balance set in settings)
+  // Count only manual vault deposits this cycle
+  // A valid deposit has type='vault' AND desc contains 'deposit' AND amt > 0
   const savedThisCycle=S.transactions
     .filter(t=>{
       if(t.type!=='vault')return false;
+      if(!t.amt||t.amt<=0)return false;
       const desc=(t.desc||'').toLowerCase();
-      // Only count actual deposit transactions, skip withdrawals and auto-cover
-      if(desc.includes('withdraw')||desc.includes('cover')||desc.includes('auto'))return false;
+      // Must explicitly be a deposit, not withdrawal/cover/auto
+      if(!desc.includes('deposit'))return false;
       const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
-      return td>=cycleStart2; // use payday-based cycle start
+      return td>=cycleStart2;
     })
     .reduce((a,t)=>a+t.amt,0);
   const savTarget=S.savingsTarget||0;
@@ -3275,7 +3278,7 @@ function render(){
     if(isPaymentExpired(a)&&isPaymentExpired(b))return 0;
     return nextBillDate(a)-nextBillDate(b);
   });
-  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${!expired&&dt!==null&&dt<=7?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
+  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${!expired&&dt!==null&&dt<=0?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
 const subLine=expired?`Ended ${p.endDate?fmtShort(p.endDate):''} · ${p.freq}`:(bd?`Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}${p.endDate?' · ends '+fmtShort(p.endDate):''}`:p.freq);
 const showEdit=!expired;
 return`<div class="lrow ${isP&&!expired?'php-t':''}" style="${expired?'opacity:.55':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">${subLine}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${showEdit?editBtn:''}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
