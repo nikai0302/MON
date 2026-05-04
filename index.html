@@ -468,18 +468,10 @@ select.stinp{cursor:pointer}
       <!-- Streak -->
       <div id="streak-zone"></div>
       <!-- Metrics -->
-      <div class="g2">
-        <div class="met blue" style="position:relative">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div class="met-lbl" style="margin-bottom:0">Balance</div>
-            <button class="eye-btn" id="eye-btn" onclick="toggleHide()">👁</button>
-          </div>
-          <div class="met-val" id="m-bal">€0</div>
-        </div>
-        <div class="met pink"><div class="met-lbl">Next payday</div><div class="met-val" id="m-pd">—</div></div>
-        <div class="met purp"><div class="met-lbl">Bills before payday</div><div class="met-val" id="m-bills">€0</div></div>
-
-      </div>
+      <span id="m-bal" style="display:none"></span>
+      <span id="m-pd" style="display:none"></span>
+      <span id="m-bills" style="display:none"></span>
+      <button class="eye-btn" id="eye-btn" onclick="toggleHide()" style="display:none"></button>
       <!-- Daily spend limit progress -->
       <div id="spend-limit-zone"></div>
       <div class="slbl">Log a transaction</div>
@@ -3062,7 +3054,11 @@ function render(){
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
         <div style="font-size:16px;font-weight:800;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'}">${fmtE(poolRemaining)}</div>
-        <div style="font-size:10px;color:var(--text2);margin-top:2px">Balance − Bills − Buffer (${Math.round(bufferPct*100)}%)</div>
+      </div>
+      <div style="background:var(--pink-l);border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:var(--pink-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">📅 Next payday</div>
+        <div style="font-size:16px;font-weight:800;color:var(--pink-d)">${fmtShort(pd)}</div>
+        <div style="font-size:10px;color:var(--pink-d);margin-top:2px;opacity:.8">${dl} days away</div>
       </div>
     </div>
 
