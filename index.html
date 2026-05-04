@@ -913,6 +913,8 @@ async function sendRateNotification(advice, dueContexts){
     new Notification(title,{body,tag:'taptap-rate'});
   }
   localStorage.setItem('mon_last_notif',Date.now().toString());
+  // Reset in-session flag after sending so next rate check can notify again after 4h
+  setTimeout(()=>{window._notifiedUrgent=false;},4*60*60*1000);
 }
 
 // Request notification permission on first rate advice
@@ -926,8 +928,10 @@ async function requestNotifPermission(){
 async function fetchRateHistoryAndAdvise(){
   if(!rate)return;
   // Refresh if rate changed or 5 min passed
-  const rateChanged=Math.abs((rate||0)-(_rateAdviceCache.lastRate||0))>0.02;
-  if(!rateChanged && Date.now()-_rateAdviceCache.ts < 5*60*1000 && _rateAdviceCache.text)return;
+  // Refresh if: first run, rate changed, or 5 min passed
+  const rateChanged=Math.abs((rate||0)-(_rateAdviceCache.lastRate||0))>0.01;
+  const stale=Date.now()-_rateAdviceCache.ts > 5*60*1000;
+  if(!rateChanged && !stale && _rateAdviceCache.text && _rateAdviceCache.avg7)return;
   _rateAdviceCache.lastRate=rate;
 
   const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
@@ -2507,14 +2511,33 @@ function render(){
   // Vault
   const{shortfallAmt:vaultShortfall}=getCashflowShortfall();
   const showCoverBtn=vaultShortfall>0&&(S.vault||0)>0;
+  // Monthly savings progress (vault deposits this cycle)
+  const cycleStart2=getCycleStart();
+  const savedThisCycle=S.transactions
+    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='vault'&&td>=cycleStart2;})
+    .reduce((a,t)=>a+t.amt,0);
+  const savTarget=S.savingsTarget||0;
+  const savPct=savTarget>0?Math.min(100,Math.round(savedThisCycle/savTarget*100)):0;
+  const savBarColor=savPct>=100?'var(--green)':savPct>=50?'var(--gold)':'var(--gold)';
+
   document.getElementById('vault-zone').innerHTML=`<div class="vault-card">
     <div class="vault-header"><div class="vault-icon">🏦</div><div>
       <div class="vault-title">Savings Vault</div>
-      <div class="vault-sub">Manual savings — deposit anytime from balance</div>
+      <div class="vault-sub">Deposit manually — your money, locked safely</div>
     </div></div>
     <div class="vault-balance">${fmtE(vault)}</div>
+    ${savTarget>0?`<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--gold-d);margin-bottom:5px">
+        <span>🎯 Monthly goal: ${fmtE(savTarget)}</span>
+        <span>${fmtE(savedThisCycle)} saved this cycle</span>
+      </div>
+      <div style="height:6px;background:rgba(212,160,23,.2);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${savPct}%;background:${savBarColor};border-radius:3px;transition:width .3s"></div>
+      </div>
+      <div style="font-size:10px;color:var(--gold-d);margin-top:3px;text-align:right">${savPct}% of monthly target${savPct>=100?' ✓ goal reached!':''}</div>
+    </div>`:''}
     ${showCoverBtn?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--warn-d);font-weight:600;line-height:1.4">
-      ⚠️ Your balance may run short before payday. Tap below to move money from vault to cover the gap.
+      ⚠️ Your balance may run short before payday.
       <button onclick="checkAndAutoCoverBills()" style="display:block;width:100%;margin-top:6px;padding:8px;background:var(--warn);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Check cash flow & cover shortfall</button>
     </div>`:''}
     <div class="vault-actions">
@@ -2594,10 +2617,7 @@ function render(){
         <div style="font-size:16px;font-weight:800;color:var(--red-d)">${fmtE(billsEur)}</div>
         ${billsEurAll>billsEur?`<div style="font-size:10px;color:var(--red);margin-top:2px">Total till payday: ${fmtE(billsEurAll)}</div>`:''}
       </div>
-      <div style="background:var(--gold-l);border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:var(--gold-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🏦 Savings target</div>
-        <div style="font-size:16px;font-weight:800;color:var(--gold-d)">${fmtE(sav)}</div>
-      </div>
+
       <div style="background:var(--warn-l);border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%) emergency</div>
         <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferAmt)}</div>
@@ -2671,13 +2691,43 @@ function render(){
   document.getElementById('cycle-sum').innerHTML=`<div class="scard"><div class="sc-title">Pay cycle snapshot</div><div class="sc-row"><span class="sc-lbl">Income received</span><span class="sc-val green">+${fmtE(cIn)}</span></div><div class="sc-row"><span class="sc-lbl">Total spent</span><span class="sc-val red">−${fmtE(cOut)}</span></div><div class="sc-row"><span class="sc-lbl">Net this cycle</span><span class="sc-val ${cNet>=0?'green':'red'}">${cNet>=0?'+':''}${fmtE(cNet)}</span></div>${sav>0?`<div class="sc-row"><span class="sc-lbl">Savings target</span><span class="sc-val purp">${fmtE(sav)}</span></div>`:''}</div>`;
   // History
   const hl=document.getElementById('hist-list');
-  hl.innerHTML=!S.transactions.length?'<div class="empty-r">No transactions yet</div>':S.transactions.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx=>{
-    const isIn=tx.type==='income'||tx.type==='salary';const isVault=tx.type==='vault';
-    const detMeta=detectNameMeta(tx.desc);const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'💰':tx.type==='spend'?detMeta.icon:'＋';
-    const iCls=tx.type==='salary'?'i-sal':isVault?'i-vlt':isIn?'i-inc':'i-spd';
-    const aC=isVault?'gold':isIn?'green':'red';const sign=isIn?'+':isVault?'→':'−';
-    return`<div class="lrow"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${tx.desc}</div><div class="rsub">${fmtDate(tx.date)}${tx.cat&&tx.cat!=='💸 Other'?' · '+tx.cat:''}</div></div><div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div><button class="redit" onclick="openETX(${tx.id})">edit</button><button class="rdel" onclick="deleteTx(${tx.id})">×</button></div>`;
-  }).join('');
+  if(!S.transactions.length){
+    hl.innerHTML='<div class="empty-r">No transactions yet</div>';
+  } else {
+    // Sort by id desc (id=Date.now() so newest first within same date)
+    const sorted=S.transactions.slice().sort((a,b)=>b.id-a.id);
+    // Group by date
+    const groups={};
+    sorted.forEach(tx=>{
+      if(!groups[tx.date])groups[tx.date]=[];
+      groups[tx.date].push(tx);
+    });
+    // Sort dates newest first
+    const dates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+    hl.innerHTML=dates.map(date=>{
+      const dayLabel=new Date(date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+      const rows=groups[date].map(tx=>{
+        const isIn=tx.type==='income'||tx.type==='salary';
+        const isVault=tx.type==='vault';
+        const detMeta=detectNameMeta(tx.desc);
+        const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'💰':tx.type==='spend'?detMeta.icon:'＋';
+        const iCls=tx.type==='salary'?'i-sal':isVault?'i-vlt':isIn?'i-inc':'i-spd';
+        const aC=isVault?'gold':isIn?'green':'red';
+        const sign=isIn?'+':isVault?'→':'−';
+        return`<div class="lrow">
+          <div class="rico ${iCls}">${ic}</div>
+          <div class="rinfo">
+            <div class="rname">${tx.desc}</div>
+            <div class="rsub">${tx.cat&&tx.cat!=='💸 Other'?tx.cat:''}</div>
+          </div>
+          <div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div>
+          <button class="redit" onclick="openETX(${tx.id})">edit</button>
+          <button class="rdel" onclick="deleteTx(${tx.id})">×</button>
+        </div>`;
+      }).join('');
+      return`<div style="font-size:11px;font-weight:700;color:var(--text2);padding:10px 16px 4px;letter-spacing:.04em;text-transform:uppercase;border-top:.5px solid var(--border);background:var(--bg)">${dayLabel}</div>${rows}`;
+    }).join('');
+  }
   // Recurring income list
   const ril=document.getElementById('ri-list');
   if(ril){
@@ -2729,23 +2779,42 @@ function render(){
   function billAdvice(daysLeft, amountPhp){
     const r2=rate||63.5;
     const todayCost=(amountPhp/r2).toFixed(2);
-    if(daysLeft<=0) return{text:'⚠️ DUE TODAY — transfer immediately!',bg:'var(--red-l)',color:'var(--red-d)'};
-    if(daysLeft<=3) return{text:'⚠️ Due in '+daysLeft+'d — transfer now, no time to wait.',bg:'var(--warn-l)',color:'var(--warn-d)'};
-    if(avg7){
-      const diff=rate-avg7;
-      const diffPHP=Math.abs((diff*(amountPhp/rate))).toFixed(0);
+    const urgentText=daysLeft<=0?'DUE TODAY':'Due in '+daysLeft+'d';
+
+    if(daysLeft<=0) return{text:'🚨 DUE TODAY — transfer immediately! Cost: €'+todayCost,bg:'var(--red-l)',color:'var(--red-d)',urgent:true};
+    if(daysLeft<=3) return{text:'⚠️ '+urgentText+' — transfer now, no time to wait. Cost today: €'+todayCost,bg:'var(--warn-l)',color:'var(--warn-d)',urgent:true};
+
+    if(avg7&&avg7>0){
+      const diff=parseFloat((rate-avg7).toFixed(2));
+      const diffPHP=Math.abs(Math.round(diff*(amountPhp/rate)));
       if(diff>=0.15){
-        return{text:'📈 Rate ₱'+diff.toFixed(2)+' above 7d avg — good time to transfer now (save ~₱'+diffPHP+'). Due in '+daysLeft+'d.',bg:'var(--green-l)',color:'var(--green-d)'};
+        return{text:'✅ TRANSFER NOW — rate ₱'+rate.toFixed(2)+'/€ is ₱'+diff.toFixed(2)+' above 7-day avg (₱'+avg7.toFixed(2)+'). Save ~₱'+diffPHP+'. '+urgentText+'.',bg:'var(--green-l)',color:'var(--green-d)',urgent:true};
       } else if(diff<=-0.15){
         const waitDays=Math.min(daysLeft-2,7);
-        if(waitDays>=2) return{text:'📉 Rate ₱'+Math.abs(diff).toFixed(2)+' below 7d avg. Wait '+(waitDays)+'d for possible improvement (~₱'+diffPHP+' at stake). Due in '+daysLeft+'d.',bg:'var(--blue-l)',color:'var(--blue-d)'};
-        return{text:'📉 Rate below avg but due soon ('+daysLeft+'d) — transfer now.',bg:'var(--warn-l)',color:'var(--warn-d)'};
+        if(waitDays>=2) return{text:'⏳ WAIT '+waitDays+'d — rate ₱'+rate.toFixed(2)+'/€ is ₱'+Math.abs(diff).toFixed(2)+' below avg (₱'+avg7.toFixed(2)+'). Could save ~₱'+diffPHP+'. '+urgentText+'.',bg:'var(--blue-l)',color:'var(--blue-d)',urgent:false};
+        return{text:'⚠️ Rate below avg but '+urgentText+' — transfer now. Cost: €'+todayCost,bg:'var(--warn-l)',color:'var(--warn-d)',urgent:true};
       }
-      return{text:'➡️ Rate stable (₱'+rate.toFixed(2)+'/€ vs 7d avg ₱'+avg7.toFixed(2)+'). Transfer anytime before '+daysLeft+'d.',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)'};
+      return{text:'➡️ Rate stable at ₱'+rate.toFixed(2)+'/€ (7d avg ₱'+avg7.toFixed(2)+'). Cost: €'+todayCost+'. '+urgentText+'.',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)',urgent:false};
     }
-    // No historical data
-    if(daysLeft<=7) return{text:'⚠️ Due in '+daysLeft+'d — transfer soon.',bg:'var(--warn-l)',color:'var(--warn-d)'};
-    return{text:'ℹ️ Due in '+daysLeft+'d · Rate ₱'+rate.toFixed(2)+'/€ · cost €'+todayCost+'.',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)'};
+
+    // No avg7 yet — show live rate info and due date urgency
+    if(daysLeft<=7) return{text:'⚠️ '+urgentText+' — transfer soon. Live rate: ₱'+rate.toFixed(2)+'/€, cost €'+todayCost+'. (Historical avg loading…)',bg:'var(--warn-l)',color:'var(--warn-d)',urgent:daysLeft<=5};
+    return{text:'📊 '+urgentText+' · Rate ₱'+rate.toFixed(2)+'/€ · Cost €'+todayCost+'. Fetching 7-day trend…',bg:'rgba(155,109,206,.08)',color:'var(--purple-d)',urgent:false};
+  }
+
+  // Check if any bill is urgent — trigger badge+notification
+  const urgentBills=phpPays.filter(p=>billAdvice(daysUntil(nextBillDate(p)),p.amountPhp).urgent);
+  if(urgentBills.length){
+    setBadge(true);
+    // Notify once per session if urgent
+    if(!window._notifiedUrgent){
+      window._notifiedUrgent=true;
+      const msg=urgentBills.map(p=>{const d=daysUntil(nextBillDate(p));return p.name+(d<=0?' DUE TODAY':' due in '+d+'d');}).join(', ');
+      sendRateNotification('💸 Transfer needed: '+msg, urgentBills.map(p=>({name:p.name,daysLeft:daysUntil(nextBillDate(p))})));
+    }
+  } else {
+    setBadge(false);
+    window._notifiedUrgent=false;
   }
 
   document.getElementById('php-zone').innerHTML=phpPays.length&&rate?
