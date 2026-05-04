@@ -482,7 +482,6 @@ select.stinp{cursor:pointer}
       </div>
       <!-- Daily spend limit progress -->
       <div id="spend-limit-zone"></div>
-      <div id="whatif-zone"></div>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="slbl" style="margin-bottom:0">Log a transaction</div>
         <button onclick="confirmNoSpend()" style="font-size:11px;color:var(--green-d);background:var(--green-l);border:none;border-radius:var(--rx);padding:5px 10px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px">✅ No spend today</button>
@@ -1529,7 +1528,6 @@ function confirmRI(riId){
   S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   // Reset pool since balance changed
-  S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();render();
   showToast('💚 '+fmtE(ri.amount)+' logged from '+ri.name);
 }
@@ -1556,10 +1554,8 @@ function markPaid(pid){
   // Log as spend transaction
   S.balance=parseFloat(((S.balance||0)-eur).toFixed(2));
   S.transactions.push({id:Date.now(),type:'spend',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
-  p.lastPaid=todayStr();
-  if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
+    if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  S.fixedPool=0;S.fixedPoolCycleKey=''; // recalc pool since balance changed
   persist();render();
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
   showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted from balance');
@@ -1695,29 +1691,17 @@ function closeSalAction(e){
 }
 function salActionChoice(what){
   document.getElementById('sal-action-sheet').classList.remove('open');
-  if(what==='amount'||what==='both'){
-    const newAmt=prompt('New monthly salary (€) — Current: '+fmtE(S.salary||0),'');
-    const amt=parseCur(newAmt);
-    if(amt&&amt>0){
-      S.salary=amt;
-      const el=document.getElementById('set-sal');if(el)el.value=amt.toFixed(2).replace('.',',');
-      showToast('💰 Salary updated to '+fmtE(amt)+'/mo');
+  // Redirect to Settings — avoids iOS PWA dialog issue
+  ST('settings');
+  setTimeout(()=>{
+    if(what==='amount'||what==='both'){
+      const el=document.getElementById('set-sal');if(el){el.focus();el.select();}
+    } else if(what==='date'){
+      const el=document.getElementById('set-pd');if(el){el.focus();}
     }
-  }
-  if(what==='date'||what==='both'){
-    const days=['Last day','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31'];
-    const cur=S.payday==='last'?'last day':('day '+S.payday);
-    const newDay=prompt('New pay day (1-31 or "last") — Current: '+cur,'');
-    if(newDay){
-      const d=newDay.trim().toLowerCase();
-      if(d==='last'||d==='last day'){S.payday='last';}
-      else{const n=parseInt(d);if(n>=1&&n<=31)S.payday=String(n);}
-      const el=document.getElementById('set-pd');if(el)el.value=S.payday;
-      showToast('📅 Pay day updated');
-    }
-  }
-  persist();render();
+  },400);
 }
+
 
 // ══════════════ RECURRING INCOME ══════════════
 let riActionId=null;
@@ -2584,57 +2568,6 @@ function getTapTapPattern(billId){
   }catch(e){return null;}
 }
 
-// ══════════════ WHAT-IF CALCULATOR ══════════════
-function openWhatIf(){
-  const zone=document.getElementById('whatif-zone');
-  if(!zone)return;
-  const r2=rate||63.5;
-  const{total:bills}=billsBeforePayday();
-  const sav=S.savingsTarget||0;
-  const buf=((S.bufferPct||20)/100);
-  const bal=S.balance||0;
-
-  zone.innerHTML=`<div style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);padding:18px 20px;margin-bottom:14px;box-shadow:var(--sh)">
-    <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:14px">🤔 What-if calculator</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Adjust values to see how they affect your daily limit</div>
-
-    <div class="fld" style="margin-bottom:10px"><label>Balance (€)</label>
-      <input type="text" inputmode="decimal" id="wi-bal" value="${bal.toFixed(2).replace('.',',')}" oninput="calcWhatIf()"/></div>
-    <div class="fld" style="margin-bottom:10px"><label>Buffer %</label>
-      <input type="number" id="wi-buf" value="${Math.round(buf*100)}" min="0" max="50" oninput="calcWhatIf()"/></div>
-    <div class="fld" style="margin-bottom:14px"><label>Move to vault (€)</label>
-      <input type="text" inputmode="decimal" id="wi-vault" value="0" oninput="calcWhatIf()"/></div>
-
-    <div id="wi-result" style="background:linear-gradient(135deg,var(--purple-l),var(--pink-l));border-radius:var(--rs);padding:14px;font-size:13px;color:var(--purple-d);line-height:1.8;font-weight:600"></div>
-  </div>`;
-  calcWhatIf();
-}
-
-function calcWhatIf(){
-  const bal=parseCur(document.getElementById('wi-bal')?.value)||S.balance||0;
-  const bufPct=(parseInt(document.getElementById('wi-buf')?.value)||20)/100;
-  const vaultMove=parseCur(document.getElementById('wi-vault')?.value)||0;
-  const{total:bills}=billsBeforePayday();
-  const dl=daysUntil(getNextPayday());
-
-  const effectiveBal=Math.max(0,bal-vaultMove);
-  const spendable=Math.max(0,effectiveBal-bills);
-  const bufAmt=parseFloat((spendable*bufPct).toFixed(2));
-  const pool=Math.max(0,parseFloat((spendable-bufAmt).toFixed(2)));
-  const daily=dl>0?parseFloat((pool/dl).toFixed(2)):pool;
-
-  const r=document.getElementById('wi-result');
-  if(r){
-    const currentDaily=daysUntil(getNextPayday())>0?(S.fixedPool||0)/daysUntil(getNextPayday()):0;
-    const diff=daily-currentDaily;
-    const diffStr=diff>=0?`+${fmtE(diff)}`:`−${fmtE(Math.abs(diff))}`;
-    r.innerHTML=`Pool: <b>${fmtE(pool)}</b> · Buffer held: <b>${fmtE(bufAmt)}</b><br>
-      Daily limit: <b style="font-size:18px">${fmtE(daily)}/day</b><br>
-      vs current: <span style="color:${diff>=0?'var(--green-d)':'var(--red-d)'}">${diffStr}/day</span>
-      ${vaultMove>0?`<br>After moving ${fmtE(vaultMove)} to vault: balance ${fmtE(effectiveBal)}`:''}`;
-  }
-}
-
 // ══════════════ SECTION TOGGLES ══════════════
 function togSection(key){
   if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
@@ -2745,9 +2678,18 @@ function submitGF(){
 function delGoal(id){if(!confirm('Delete this goal?'))return;S.goals=S.goals.filter(g=>g.id!==id);persist();renderGoals()}
 function addToGoal(id){
   const g=S.goals.find(x=>x.id===id);if(!g)return;
-  const inp=prompt('Add to "'+g.name+'" savings (€):','');const amt=parseCur(inp);if(!amt||amt<=0)return;
-  g.saved=parseFloat((g.saved+amt).toFixed(2));persist();renderGoals();showToast('✓ Added '+fmtE(amt)+' to '+g.name);
+  // Use the vault sheet repurposed for goal deposits
+  _vaultMode='goal';
+  _goalTargetId=id;
+  document.getElementById('vsh-title').textContent='Add to: '+g.name;
+  document.getElementById('vsh-btn').textContent='Add to Goal';
+  document.getElementById('vsh-amt').value='';
+  document.getElementById('vsh-err').style.display='none';
+  document.getElementById('vsh-info').innerHTML='Goal: <b>'+g.name+'</b><br>Progress: <b>'+fmtE(g.saved)+'</b> of <b>'+fmtE(g.target)+'</b>';
+  document.getElementById('vsh').style.display='flex';
+  setTimeout(()=>document.getElementById('vsh-amt').focus(),300);
 }
+let _goalTargetId=null;
 function renderGoals(){
   const gl=document.getElementById('goals-list');const gs=document.getElementById('goals-summary');if(!gl||!gs)return;
   const now=new Date();const r2=rate||63.5;
@@ -2809,6 +2751,7 @@ function vshValidate(){
   const amt=parseCur(document.getElementById('vsh-amt').value);
   const errEl=document.getElementById('vsh-err');
   if(isNaN(amt)||amt<=0){errEl.style.display='none';return false;}
+  if(_vaultMode==='goal'){errEl.style.display='none';return true;} // no balance check for goal
   const bal=parseFloat((S.balance||0).toFixed(2));
   const vault=parseFloat((S.vault||0).toFixed(2));
   let err='';
@@ -2833,7 +2776,14 @@ function vshConfirm(){
   if(!vshValidate())return;
   const bal=parseFloat((S.balance||0).toFixed(2));
   const vault=parseFloat((S.vault||0).toFixed(2));
-  if(_vaultMode==='deposit'){
+  if(_vaultMode==='goal'){
+    const g=S.goals.find(x=>x.id===_goalTargetId);
+    if(!g){showToast('Goal not found');return;}
+    g.saved=parseFloat((g.saved+amt).toFixed(2));
+    document.getElementById('vsh').style.display='none';
+    persist();renderGoals();showToast('✓ Added '+fmtE(amt)+' to '+g.name);
+    return;
+  } else if(_vaultMode==='deposit'){
     S.balance=parseFloat((bal-amt).toFixed(2));
     S.vault=parseFloat((vault+amt).toFixed(2));
     S.transactions.push({id:Date.now(),type:'vault',desc:'Deposit to vault',cat:'🏦 Vault',amt,date:todayStr()});
@@ -2847,10 +2797,6 @@ function vshConfirm(){
   document.getElementById('vsh').style.display='none';
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
-  // Force pool recalculation on next render by clearing the cache key
-  // Do NOT persist yet — render() will recalculate and persist with correct value
-  S.fixedPool=0;
-  S.fixedPoolCycleKey='';
   render(); // recalculates fixedPool first, then persists with new correct value
 }
 
@@ -2869,7 +2815,6 @@ function sv(){
   if(!isNaN(buf)&&buf>=0&&buf<=50)S.bufferPct=buf;
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   // Reset pool so it recalculates with new values
-  S.fixedPool=0;S.fixedPoolCycleKey='';
   render(); // render recalculates and persists
 }
 function exportData(){
@@ -3007,13 +2952,13 @@ function render(){
   const showCoverBtn=vaultShortfall>0&&(S.vault||0)>0;
   // Monthly savings progress (vault deposits this cycle)
   const cycleStart2=getCycleStart();
+  const monthStart2=new Date(now.getFullYear(),now.getMonth(),1);
   const savedThisCycle=S.transactions
     .filter(t=>{
       if(t.type!=='vault')return false;
-      // Only count deposits (positive vault moves), not withdrawals
-      if(t.desc&&(t.desc.toLowerCase().includes('withdrawal')||t.desc.toLowerCase().includes('withdraw')))return false;
+      if(!t.desc||t.desc.toLowerCase().includes('withdrawal')||t.desc.toLowerCase().includes('withdraw'))return false;
       const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
-      return td>=cycleStart2;
+      return td>=monthStart2; // count from 1st of current month
     })
     .reduce((a,t)=>a+t.amt,0);
   const savTarget=S.savingsTarget||0;
@@ -3056,39 +3001,18 @@ function render(){
     .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='spend'&&td>=cycleStart;})
     .reduce((a,t)=>a+t.amt,0);
 
-  // ── Fixed pool: locked at cycle start, doesn't change as bills are paid ──
-  // Recompute and store whenever a new cycle begins
-  // ── Fixed pool: set at cycle start, resets only on vault→balance moves ──
-  const cycleKey2=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
-  if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey2){
-    const balAtStart=parseFloat((bal+cycleSpend).toFixed(2));
-    const{total:allBills2}=billsBeforePayday();
-    // Add expected recurring income arriving before payday
-    const pd3=getNextPayday();
-    const todayD3=new Date();todayD3.setHours(0,0,0,0);
-    let riBeforePayday=0;
-    (S.recurringIncome||[]).forEach(ri=>{
-      const rd=nextRIDate(ri);
-      if(rd>todayD3&&rd<=pd3){
-        // Check not already logged this cycle
-        const alreadyLogged=S.transactions.some(t=>t.type==='income'&&t.desc===ri.name&&new Date(t.date+'T00:00:00')>=cycleStart);
-        if(!alreadyLogged)riBeforePayday=parseFloat((riBeforePayday+ri.amount).toFixed(2));
-      }
-    });
-    const spendable2=Math.max(0,balAtStart+riBeforePayday-allBills2);
-    const bufRes2=parseFloat((spendable2*bufferPct).toFixed(2));
-    S.fixedPool=Math.max(0,parseFloat((spendable2-bufRes2).toFixed(2)));
-    if(riBeforePayday>0)S._poolRIBoost=riBeforePayday; else delete S._poolRIBoost;
-    S.fixedPoolCycleKey=cycleKey2;
-    persist();
-  }
-  const fixedPool=S.fixedPool||0;
+  // ── Pool: (balance - bills before payday) × (1 - buffer%) ──
+  // Live calculation — updates whenever balance, bills, or buffer changes
+  const{total:allBillsForPool}=billsBeforePayday();
+  const poolSpendable=Math.max(0,parseFloat((bal-allBillsForPool).toFixed(2)));
+  const bufferHeld=parseFloat((poolSpendable*bufferPct).toFixed(2));
+  const fixedPool=Math.max(0,parseFloat((poolSpendable-bufferHeld).toFixed(2)));
 
-  // Pool remaining = what's left of the fixed pool
+  // Pool remaining = pool - what's been spent this cycle
   const poolRemaining=Math.max(0,parseFloat((fixedPool-cycleSpend).toFixed(2)));
-  const poolExhausted=cycleSpend>=fixedPool&&fixedPool>0;
+  const poolExhausted=cycleSpend>fixedPool&&fixedPool>0;
 
-  // Daily limit = pool remaining / days left (pool only, buffer is a cushion not spendable)
+  // Daily limit = pool remaining / days to payday
   const dailyLimit=poolRemaining>0&&dl>0?Math.max(0,parseFloat((poolRemaining/dl).toFixed(2))):0;
 
   // Days in cycle (for display)
@@ -3137,9 +3061,8 @@ function render(){
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
         <div style="font-size:16px;font-weight:800;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'}">${fmtE(poolRemaining)}</div>
-        <div style="font-size:10px;color:var(--text2);margin-top:2px">of ${fmtE(fixedPool)} fixed this cycle${S._poolRIBoost?` · incl. ${fmtE(S._poolRIBoost)} expected income`:''}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">Balance − Bills − Buffer (${Math.round(bufferPct*100)}%)</div>
         <button onclick="recalcPool()" style="margin-top:5px;font-size:10px;color:var(--purple-d);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline">↻ Recalculate</button>
-        <button onclick="openWhatIf()" style="margin-top:3px;font-size:10px;color:var(--blue-d);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline">🤔 What-if</button>
       </div>
     </div>
 
