@@ -482,15 +482,13 @@ select.stinp{cursor:pointer}
       </div>
       <!-- Daily spend limit progress -->
       <div id="spend-limit-zone"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="slbl" style="margin-bottom:0">Log a transaction</div>
-        <button onclick="confirmNoSpend()" style="font-size:11px;color:var(--green-d);background:var(--green-l);border:none;border-radius:var(--rx);padding:5px 10px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px">✅ No spend today</button>
-      </div>
+      <div class="slbl">Log a transaction</div>
       <div class="tpick">
         <button class="tpill as" id="pill-spend" onclick="stype('spend')">− Spend</button>
         <button class="tpill" id="pill-income" onclick="stype('income')">+ Income</button>
         <button class="tpill" id="pill-salary" onclick="stype('salary')">💰 Salary</button>
         <button class="tpill" id="pill-vault" onclick="stype('vault')">🏦 Vault</button>
+        <button class="tpill" id="pill-nospend" onclick="confirmNoSpend()" style="background:var(--green-l);color:var(--green-d);border-color:var(--green)">✅ No spend</button>
       </div>
       <div class="qbar" id="qbar">
         <div class="qbar-row1">
@@ -1004,12 +1002,10 @@ function scheduleNudgeNotification(){
 }
 
 function confirmNoSpend(){
-  // Log a "no spend" marker so the day is accounted for
   const existing=S.transactions.find(t=>t.date===todayStr()&&t.desc==='No spending today');
-  if(!existing){
-    S.transactions.push({id:Date.now(),type:'spend',desc:'No spending today',cat:'✅ No spend',amt:0,date:todayStr()});
-    persist();render();
-  }
+  if(existing){showToast('Already recorded for today ✓');return;}
+  S.transactions.push({id:Date.now(),type:'spend',desc:'No spending today',cat:'✅ No spend',amt:0,date:todayStr()});
+  persist();render();
   showToast('✅ No-spend day recorded!');
 }
 
@@ -2148,7 +2144,7 @@ function renderCalView(){
   const uwarn=document.getElementById('cal-unlogged-warn');
   if(uwarn&&calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()){
     const unlogged=getUnloggedDays();
-    uwarn.innerHTML=unlogged>0?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--warn-d)">⚠️ ${unlogged} day${unlogged!==1?'s':''} this cycle with no logged transactions. Balances may be off.</div>`:'';
+    uwarn.innerHTML=unlogged>2?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--warn-d)">⚠️ ${unlogged} days this cycle with no activity logged — past balances may be approximate.</div>`:'';
   }
 }
 
@@ -2407,13 +2403,16 @@ function getGoalProjection(g){
 function getUnloggedDays(){
   const cycleStart=getCycleStart();
   const today=new Date();today.setHours(0,0,0,0);
-  const loggedDates=new Set(S.transactions.filter(t=>t.type==='spend').map(t=>t.date));
+  // A day is "logged" if it has ANY transaction (spend, income, vault, no-spend marker)
+  const loggedDates=new Set(S.transactions.map(t=>t.date));
   let unlogged=0;
+  // Start from day AFTER cycle start (first day of cycle doesn't need a transaction)
   const cursor=new Date(cycleStart);
+  cursor.setDate(cursor.getDate()+1);
   while(cursor<today){
-    cursor.setDate(cursor.getDate()+1);
     const ds=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
     if(!loggedDates.has(ds))unlogged++;
+    cursor.setDate(cursor.getDate()+1);
   }
   return unlogged;
 }
@@ -2952,13 +2951,15 @@ function render(){
   const showCoverBtn=vaultShortfall>0&&(S.vault||0)>0;
   // Monthly savings progress (vault deposits this cycle)
   const cycleStart2=getCycleStart();
-  const monthStart2=new Date(now.getFullYear(),now.getMonth(),1);
+  // Only count explicit vault deposits made this cycle (not vault balance set in settings)
   const savedThisCycle=S.transactions
     .filter(t=>{
       if(t.type!=='vault')return false;
-      if(!t.desc||t.desc.toLowerCase().includes('withdrawal')||t.desc.toLowerCase().includes('withdraw'))return false;
+      const desc=(t.desc||'').toLowerCase();
+      // Only count actual deposit transactions, skip withdrawals and auto-cover
+      if(desc.includes('withdraw')||desc.includes('cover')||desc.includes('auto'))return false;
       const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
-      return td>=monthStart2; // count from 1st of current month
+      return td>=cycleStart2; // use payday-based cycle start
     })
     .reduce((a,t)=>a+t.amt,0);
   const savTarget=S.savingsTarget||0;
@@ -3062,7 +3063,6 @@ function render(){
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
         <div style="font-size:16px;font-weight:800;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'}">${fmtE(poolRemaining)}</div>
         <div style="font-size:10px;color:var(--text2);margin-top:2px">Balance − Bills − Buffer (${Math.round(bufferPct*100)}%)</div>
-        <button onclick="recalcPool()" style="margin-top:5px;font-size:10px;color:var(--purple-d);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline">↻ Recalculate</button>
       </div>
     </div>
 
