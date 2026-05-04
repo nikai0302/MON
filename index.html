@@ -448,6 +448,8 @@ select.stinp{cursor:pointer}
     <!-- OVERVIEW -->
     <div id="tab-overview" class="tab active">
       <div id="daily-banner"></div>
+      <div id="backup-remind-zone"></div>
+      <div id="ri-confirm-zone"></div>
       <div id="php-urgent-zone"></div>
       <div id="ovd-zone"></div>
       <!-- Net worth snapshot -->
@@ -480,7 +482,11 @@ select.stinp{cursor:pointer}
       </div>
       <!-- Daily spend limit progress -->
       <div id="spend-limit-zone"></div>
-      <div class="slbl">Log a transaction</div>
+      <div id="whatif-zone"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="slbl" style="margin-bottom:0">Log a transaction</div>
+        <button onclick="confirmNoSpend()" style="font-size:11px;color:var(--green-d);background:var(--green-l);border:none;border-radius:var(--rx);padding:5px 10px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px">✅ No spend today</button>
+      </div>
       <div class="tpick">
         <button class="tpill as" id="pill-spend" onclick="stype('spend')">− Spend</button>
         <button class="tpill" id="pill-income" onclick="stype('income')">+ Income</button>
@@ -522,12 +528,38 @@ select.stinp{cursor:pointer}
 
     <!-- HISTORY -->
     <div id="tab-history" class="tab">
-      <div class="slbl">All transactions</div>
+      <!-- Monthly summary toggle -->
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button id="hist-view-detail" onclick="setHistView('detail')" style="flex:1;padding:9px;border-radius:var(--rs);border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;background:var(--purple);color:#fff">📋 Transactions</button>
+        <button id="hist-view-monthly" onclick="setHistView('monthly')" style="flex:1;padding:9px;border-radius:var(--rs);border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;background:var(--purple-l);color:var(--purple-d)">📊 Monthly</button>
+      </div>
+      <div id="hist-monthly-zone" style="display:none"></div>
+      <!-- Search & filter (detail view) -->
+      <div id="hist-detail-zone">
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+        <input id="hist-search" type="text" placeholder="🔍 Search transactions…" oninput="renderHistory()"
+          style="flex:1;padding:10px 14px;border-radius:var(--rs);border:.5px solid var(--border2);background:var(--card);font-size:14px;color:var(--text);font-family:inherit;outline:none"/>
+        <select id="hist-filter" onchange="renderHistory()"
+          style="padding:10px 10px;border-radius:var(--rs);border:.5px solid var(--border2);background:var(--card);font-size:13px;color:var(--text);font-family:inherit;outline:none">
+          <option value="all">All</option>
+          <option value="spend">Spend</option>
+          <option value="income">Income</option>
+          <option value="salary">Salary</option>
+          <option value="vault">Vault</option>
+        </select>
+      </div>
+      <!-- Export CSV button -->
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <button onclick="exportCSV()" style="background:var(--purple-l);color:var(--purple-d);border:none;border-radius:var(--rs);padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">⬇ Export CSV</button>
+      </div>
       <div class="lcard" id="hist-list"><div class="empty-r">No transactions yet</div></div>
+      </div><!-- /hist-detail-zone -->
     </div>
 
     <!-- BILLS -->
     <div id="tab-payments" class="tab">
+      <!-- Bill category pie chart -->
+      <div id="bill-chart-zone"></div>
       <div class="slbl">Recurring income</div>
       <div class="lcard" id="ri-list"><div class="empty-r">No recurring income yet</div></div>
       <button class="addbtn" style="margin-bottom:20px" onclick="openRIF()">＋ Add recurring income</button>
@@ -564,6 +596,8 @@ select.stinp{cursor:pointer}
       </div>
       <!-- Month grid -->
       <div id="cal-view-grid" style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);overflow:hidden;margin-bottom:14px;box-shadow:var(--sh)"></div>
+      <!-- Unlogged days warning -->
+      <div id="cal-unlogged-warn"></div>
       <!-- Selected day detail -->
       <div id="cal-day-detail"></div>
     </div>
@@ -777,6 +811,27 @@ try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catc
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
 function persist(){try{localStorage.setItem('mon_v5',JSON.stringify(S))}catch(e){}}
 
+function checkBackupReminder(){
+  const last=parseInt(localStorage.getItem('mon_last_backup_prompt')||'0');
+  const daysSince=Math.floor((Date.now()-last)/(86400000));
+  if(daysSince>=14){ // remind every 2 weeks
+    localStorage.setItem('mon_last_backup_prompt',Date.now().toString());
+    setTimeout(()=>{
+      const zone=document.getElementById('backup-remind-zone');
+      if(zone&&!zone.innerHTML){
+        zone.innerHTML=`<div style="background:var(--blue-l);border-radius:var(--rs);padding:12px 16px;margin-bottom:10px;border:.5px solid rgba(91,155,213,.3)">
+          <div style="font-size:13px;font-weight:700;color:var(--blue-d);margin-bottom:6px">💾 Back up your data</div>
+          <div style="font-size:12px;color:var(--blue-d);margin-bottom:8px">It's been ${daysSince} days since your last backup. Export your data to avoid losing it.</div>
+          <div style="display:flex;gap:8px">
+            <button onclick="exportData();this.closest('div[style]').remove()" style="flex:1;padding:8px;background:var(--blue-d);color:#fff;border:none;border-radius:var(--rs);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">⬇ Export now</button>
+            <button onclick="this.closest('div[style]').remove()" style="padding:8px 14px;background:rgba(0,0,0,.06);color:var(--text2);border:none;border-radius:var(--rs);font-size:12px;cursor:pointer;font-family:inherit">Later</button>
+          </div>
+        </div>`;
+      }
+    },2000);
+  }
+}
+
 function checkMonthlyBudgetRollover(){
   if(!S.monthlyBudget||S.monthlyBudget<=0)return;
   // Check if we've already done rollover for this month
@@ -925,6 +980,40 @@ async function requestNotifPermission(){
   }
 }
 
+function scheduleNudgeNotification(){
+  // Schedule a daily 9pm reminder to log spending if nothing logged today
+  if(!('serviceWorker' in navigator)||Notification.permission!=='granted')return;
+  const now=new Date();
+  const nudge=new Date(now.getFullYear(),now.getMonth(),now.getDate(),21,0,0);
+  if(nudge<=now)nudge.setDate(nudge.getDate()+1);
+  const msUntil=nudge-now;
+  // Clear previous timer
+  if(window._nudgeTimer)clearTimeout(window._nudgeTimer);
+  window._nudgeTimer=setTimeout(async()=>{
+    const todayTxs=S.transactions.filter(t=>t.date===todayStr()&&t.type==='spend');
+    if(todayTxs.length===0){
+      const reg=await navigator.serviceWorker.ready;
+      reg.showNotification('📝 MON — Log your spending',{
+        body:'Did you spend anything today? Tap to log or confirm no spending.',
+        tag:'daily-nudge',
+        renotify:false,
+        actions:[{action:'nospend',title:'No spending today'}]
+      }).catch(()=>{});
+    }
+    scheduleNudgeNotification(); // reschedule for tomorrow
+  },msUntil);
+}
+
+function confirmNoSpend(){
+  // Log a "no spend" marker so the day is accounted for
+  const existing=S.transactions.find(t=>t.date===todayStr()&&t.desc==='No spending today');
+  if(!existing){
+    S.transactions.push({id:Date.now(),type:'spend',desc:'No spending today',cat:'✅ No spend',amt:0,date:todayStr()});
+    persist();render();
+  }
+  showToast('✅ No-spend day recorded!');
+}
+
 async function fetchRateHistoryAndAdvise(){
   if(!rate)return;
   // Refresh if rate changed or 5 min passed
@@ -1029,6 +1118,7 @@ async function fetchRateHistoryAndAdvise(){
   const anyUrgent=allUrgent.length>0;
   _rateAdviceCache={text:advice,ts:Date.now(),trend,avg7,avg30,urgent:anyUrgent,dueContexts,
     histSummary:r30.slice(-5).map(h=>`${h.date.slice(5)}: ₱${h.rate.toFixed(2)}`).join(' · ')};
+  saveRateCache(); // persist so advice survives app restarts
   setBadge(anyUrgent);
   if(anyUrgent) sendRateNotification(
     allUrgent.map(d=>d.daysLeft<=3?'⚠️ '+d.name+' due in '+(d.daysLeft===0?'TODAY':d.daysLeft+'d'):'📈 '+d.name+' — good rate now').join(' | '),
@@ -1218,6 +1308,7 @@ function ST(t,pushState=true){
   ['overview','history','payments','goals','calendar','settings'].forEach((n,i)=>{if(n===t)document.querySelectorAll('.nb')[i].classList.add('active')});
   if(t==='goals')renderGoals();
   if(t==='calendar')renderCalView();
+  if(t==='history')renderHistory();
   // Clear badge when user views Bills tab (they saw the TapTap advice)
   if(t==='payments'){
     setBadge(false);
@@ -1431,15 +1522,47 @@ function saveETX(){
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();closeETX();render();
 }
+function confirmRI(riId){
+  const ri=(S.recurringIncome||[]).find(r=>r.id===riId);if(!ri)return;
+  // Log as income transaction
+  S.balance=parseFloat(((S.balance||0)+ri.amount).toFixed(2));
+  S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
+  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  // Reset pool since balance changed
+  S.fixedPool=0;S.fixedPoolCycleKey='';
+  persist();render();
+  showToast('💚 '+fmtE(ri.amount)+' logged from '+ri.name);
+}
+
+function dismissRI(riId){
+  // Dismiss for today — don't ask again until tomorrow
+  if(!S._riDismissed)S._riDismissed={};
+  S._riDismissed[riId]=todayStr();
+  persist();
+  const zone=document.getElementById('ri-confirm-zone');
+  if(zone){
+    // Remove just this RI's prompt
+    const items=zone.querySelectorAll('div[data-ri]');
+    zone.innerHTML='';
+  }
+  render();
+}
+
 function markPaid(pid){
   const p=S.payments.find(x=>x.id===pid);if(!p)return;
-  const r2=rate||63.5;const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+  const r2=rate||63.5;
+  const eur=parseFloat((p.currency==='PHP'?p.amountPhp/r2:p.amountEur).toFixed(2));
+  const cat=p.billCategory||'📦 Other';
+  // Log as spend transaction
   S.balance=parseFloat(((S.balance||0)-eur).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'spend',desc:p.name+' — paid',cat:'🏠 Home',amt:eur,date:todayStr()});
-  p.lastPaid=new Date().toISOString();
+  S.transactions.push({id:Date.now(),type:'spend',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
+  p.lastPaid=todayStr();
   if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  persist();render();showToast('✅ Marked as paid');
+  S.fixedPool=0;S.fixedPoolCycleKey=''; // recalc pool since balance changed
+  persist();render();
+  if(p.currency==='PHP')recordTapTapTransfer(p.id);
+  showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted from balance');
 }
 
 // ══════════════ BILL MODIFY ══════════════
@@ -2037,6 +2160,12 @@ function renderCalView(){
   }
   if(calViewSelected) calViewShowDetail(calViewSelected);
   else{const dd=document.getElementById('cal-day-detail');if(dd)dd.innerHTML='';}
+  // Unlogged days warning
+  const uwarn=document.getElementById('cal-unlogged-warn');
+  if(uwarn&&calViewYear===today.getFullYear()&&calViewMonth===today.getMonth()){
+    const unlogged=getUnloggedDays();
+    uwarn.innerHTML=unlogged>0?`<div style="background:var(--warn-l);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--warn-d)">⚠️ ${unlogged} day${unlogged!==1?'s':''} this cycle with no logged transactions. Balances may be off.</div>`:'';
+  }
 }
 
 function calViewSelectDay(ds){
@@ -2141,6 +2270,371 @@ function calViewShowDetail(ds){
   </div>`;
 }
 
+// ══════════════ HISTORY SEARCH & FILTER ══════════════
+function renderHistory(){
+  const hl=document.getElementById('hist-list');
+  if(!hl)return;
+  const search=(document.getElementById('hist-search')?.value||'').toLowerCase();
+  const filter=document.getElementById('hist-filter')?.value||'all';
+
+  let txs=S.transactions.slice();
+  if(filter!=='all') txs=txs.filter(t=>t.type===filter);
+  if(search) txs=txs.filter(t=>(t.desc||'').toLowerCase().includes(search)||(t.cat||'').toLowerCase().includes(search));
+  txs.sort((a,b)=>b.id-a.id); // newest first by timestamp
+
+  if(!txs.length){hl.innerHTML='<div class="empty-r">No transactions found</div>';return;}
+
+  // Group by date
+  const groups={};
+  txs.forEach(tx=>{if(!groups[tx.date])groups[tx.date]=[];groups[tx.date].push(tx);});
+  const dates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+
+  hl.innerHTML=dates.map(date=>{
+    const dayLabel=new Date(date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    const dayTotal=groups[date].reduce((a,t)=>{
+      if(t.type==='spend')return a-t.amt;
+      if(t.type==='income'||t.type==='salary')return a+t.amt;
+      return a;
+    },0);
+    const rows=groups[date].map(tx=>{
+      const isIn=tx.type==='income'||tx.type==='salary';
+      const isVault=tx.type==='vault';
+      const detMeta=detectNameMeta(tx.desc);
+      const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'💚':tx.type==='spend'?detMeta.icon:'＋';
+      const iCls=tx.type==='salary'?'i-sal':isVault?'i-vlt':isIn?'i-inc':'i-spd';
+      const aC=isVault?'gold':isIn?'green':'red';
+      const sign=isIn?'+':isVault?'→':'−';
+      return`<div class="lrow">
+        <div class="rico ${iCls}">${ic}</div>
+        <div class="rinfo">
+          <div class="rname">${tx.desc}</div>
+          <div class="rsub">${tx.cat&&tx.cat!=='💸 Other'?tx.cat:''}</div>
+        </div>
+        <div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div>
+        <button class="redit" onclick="openETX(${tx.id})">edit</button>
+        <button class="rdel" onclick="deleteTx(${tx.id})">×</button>
+      </div>`;
+    }).join('');
+    const daySign=dayTotal>=0?'+':'';
+    return`<div style="font-size:11px;font-weight:700;color:var(--text2);padding:10px 16px 4px;display:flex;justify-content:space-between;border-top:.5px solid var(--border);background:var(--bg)">
+      <span style="text-transform:uppercase;letter-spacing:.04em">${dayLabel}</span>
+      <span style="color:${dayTotal>=0?'var(--green-d)':'var(--red-d)'}">${daySign}${fmtE(Math.abs(dayTotal))}</span>
+    </div>${rows}`;
+  }).join('');
+}
+
+// ══════════════ CSV EXPORT ══════════════
+function exportCSV(){
+  const rows=[['Date','Description','Category','Type','Amount (€)']];
+  S.transactions.slice().sort((a,b)=>b.id-a.id).forEach(t=>{
+    const isIn=t.type==='income'||t.type==='salary';
+    const isVault=t.type==='vault';
+    const amt=isIn?t.amt:isVault?0:-t.amt;
+    rows.push([t.date,'"'+(t.desc||'').replace(/"/g,'')+'"','"'+(t.cat||'').replace(/"/g,'')+'"',t.type,amt.toFixed(2)]);
+  });
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='MON_transactions_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('📥 CSV exported');
+}
+
+// ══════════════ BILL CATEGORY PIE CHART ══════════════
+const BILL_CAT_COLORS={
+  '🏠 Housing':'#e07b7b','🍔 Food':'#e8a44a','🚗 Transport':'#5b9de0',
+  '📱 Subscriptions':'#9b6dce','🇵🇭 Remittance':'#4fc3a1','🏥 Health':'#e06b8a',
+  '🎓 Education':'#6bade0','💡 Utilities':'#e0c44a','💄 Personal':'#d47ec8','📦 Other':'#8fa8a8'
+};
+
+function renderBillPieChart(){
+  const zone=document.getElementById('bill-chart-zone');
+  if(!zone)return;
+  const r2=rate||63.5;
+  const active=S.payments.filter(p=>!isPaymentExpired(p));
+  if(!active.length){zone.innerHTML='';return;}
+
+  // Group by category
+  const cats={};
+  active.forEach(p=>{
+    const cat=p.billCategory||'📦 Other';
+    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+    cats[cat]=(cats[cat]||0)+eur;
+  });
+  const total=Object.values(cats).reduce((a,v)=>a+v,0);
+  const entries=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+
+  // SVG pie chart
+  const cx=100,cy=100,r=80;
+  let angle=-Math.PI/2;
+  let slices='';
+  entries.forEach(([cat,amt])=>{
+    const pct=amt/total;
+    const sweep=pct*2*Math.PI;
+    const x1=cx+r*Math.cos(angle);const y1=cy+r*Math.sin(angle);
+    angle+=sweep;
+    const x2=cx+r*Math.cos(angle);const y2=cy+r*Math.sin(angle);
+    const large=sweep>Math.PI?1:0;
+    const col=BILL_CAT_COLORS[cat]||'#aaa';
+    slices+=`<path d="M${cx},${cy} L${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${large} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${col}" stroke="white" stroke-width="2"/>`;
+  });
+
+  // Legend
+  const legend=entries.map(([cat,amt])=>{
+    const col=BILL_CAT_COLORS[cat]||'#aaa';
+    const pct=Math.round(amt/total*100);
+    return`<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <div style="width:12px;height:12px;border-radius:3px;background:${col};flex-shrink:0"></div>
+      <div style="flex:1;font-size:12px;color:var(--text)">${cat}</div>
+      <div style="font-size:12px;font-weight:700;color:var(--text)">${fmtE(amt)}</div>
+      <div style="font-size:11px;color:var(--text2);min-width:28px;text-align:right">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  zone.innerHTML=`<div style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);padding:16px 20px;margin-bottom:14px;box-shadow:var(--sh)">
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">Bills breakdown · ${fmtE(total)}/month</div>
+    <div style="display:flex;gap:20px;align-items:center">
+      <svg width="120" height="120" viewBox="0 0 200 200">${slices}</svg>
+      <div style="flex:1">${legend}</div>
+    </div>
+  </div>`;
+}
+
+// ══════════════ GOALS PROJECTED REACH DATE ══════════════
+function getGoalProjection(g){
+  // Based on vault deposits this cycle, project reach date
+  const cycleStart=getCycleStart();
+  const depositsThisCycle=S.transactions
+    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='vault'&&td>=cycleStart;})
+    .reduce((a,t)=>a+t.amt,0);
+  const daysInCycle=new Date().getDate(); // approx days so far this month
+  const monthlyRate=daysInCycle>0?depositsThisCycle/daysInCycle*30:0;
+  const remaining=Math.max(0,g.target-g.saved);
+  if(monthlyRate<=0||remaining<=0)return null;
+  const monthsLeft=Math.ceil(remaining/monthlyRate);
+  const reachDate=new Date();
+  reachDate.setMonth(reachDate.getMonth()+monthsLeft);
+  return{monthsLeft,reachDate,monthlyRate};
+}
+
+// ══════════════ CALENDAR UNLOGGED DAYS WARNING ══════════════
+function getUnloggedDays(){
+  const cycleStart=getCycleStart();
+  const today=new Date();today.setHours(0,0,0,0);
+  const loggedDates=new Set(S.transactions.filter(t=>t.type==='spend').map(t=>t.date));
+  let unlogged=0;
+  const cursor=new Date(cycleStart);
+  while(cursor<today){
+    cursor.setDate(cursor.getDate()+1);
+    const ds=cursor.getFullYear()+'-'+String(cursor.getMonth()+1).padStart(2,'0')+'-'+String(cursor.getDate()).padStart(2,'0');
+    if(!loggedDates.has(ds))unlogged++;
+  }
+  return unlogged;
+}
+
+// ══════════════ TAPTAP RATE CACHE PERSISTENCE ══════════════
+function loadRateCache(){
+  try{
+    const c=JSON.parse(localStorage.getItem('mon_rate_cache')||'{}');
+    if(c.avg7&&c.ts&&Date.now()-c.ts<48*3600*1000){
+      _rateAdviceCache={..._rateAdviceCache,...c};
+    }
+  }catch(e){}
+}
+function saveRateCache(){
+  try{
+    const{avg7,avg30,histSummary,ts}=_rateAdviceCache;
+    if(avg7)localStorage.setItem('mon_rate_cache',JSON.stringify({avg7,avg30,histSummary,ts}));
+  }catch(e){}
+}
+
+function recalcPool(){
+  S.fixedPool=0;
+  S.fixedPoolCycleKey='';
+  persist();render();
+  showToast('Pool recalculated from current balance');
+}
+
+// ══════════════ HISTORY VIEW TOGGLE ══════════════
+let _histView='detail';
+function setHistView(v){
+  _histView=v;
+  document.getElementById('hist-detail-zone').style.display=v==='detail'?'':'none';
+  document.getElementById('hist-monthly-zone').style.display=v==='monthly'?'':'none';
+  document.getElementById('hist-view-detail').style.background=v==='detail'?'var(--purple)':'var(--purple-l)';
+  document.getElementById('hist-view-detail').style.color=v==='detail'?'#fff':'var(--purple-d)';
+  document.getElementById('hist-view-monthly').style.background=v==='monthly'?'var(--purple)':'var(--purple-l)';
+  document.getElementById('hist-view-monthly').style.color=v==='monthly'?'#fff':'var(--purple-d)';
+  if(v==='monthly')renderMonthlySummary();
+  else renderHistory();
+}
+
+function renderMonthlySummary(){
+  const zone=document.getElementById('hist-monthly-zone');
+  if(!zone)return;
+  // Group spend transactions by month
+  const months={};
+  S.transactions.filter(t=>t.type==='spend'&&t.amt>0).forEach(t=>{
+    const mo=t.date.slice(0,7); // YYYY-MM
+    if(!months[mo])months[mo]={total:0,cats:{},txCount:0,days:new Set()};
+    months[mo].total=parseFloat((months[mo].total+t.amt).toFixed(2));
+    months[mo].txCount++;
+    months[mo].days.add(t.date);
+    const cat=t.cat||'📦 Other';
+    months[mo].cats[cat]=(months[mo].cats[cat]||0)+t.amt;
+  });
+  const sortedMonths=Object.keys(months).sort((a,b)=>b.localeCompare(a));
+  if(!sortedMonths.length){zone.innerHTML='<div class="empty-r">No spending history yet</div>';return;}
+
+  const maxTotal=Math.max(...sortedMonths.map(m=>months[m].total));
+  zone.innerHTML=sortedMonths.map(mo=>{
+    const d=months[mo];
+    const moLabel=new Date(mo+'-01').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+    const barW=maxTotal>0?Math.round(d.total/maxTotal*100):0;
+    const topCats=Object.entries(d.cats).sort((a,b)=>b[1]-a[1]).slice(0,3)
+      .map(([c,v])=>`<span style="font-size:11px;background:var(--purple-l);color:var(--purple-d);border-radius:var(--rx);padding:2px 7px;font-weight:600">${c}: ${fmtE(v)}</span>`).join(' ');
+    return`<div style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);padding:14px 18px;margin-bottom:10px;box-shadow:var(--sh)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:800;color:var(--text)">${moLabel}</div>
+        <div style="font-size:18px;font-weight:800;color:var(--red-d)">${fmtE(d.total)}</div>
+      </div>
+      <div style="height:8px;background:var(--red-l);border-radius:4px;margin-bottom:10px;overflow:hidden">
+        <div style="height:100%;width:${barW}%;background:var(--red);border-radius:4px"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${d.txCount} transactions · ${d.days.size} days</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${topCats}</div>
+    </div>`;
+  }).join('');
+
+  // Spending pattern analysis
+  analyzeSpendingPatterns(zone);
+}
+
+// ══════════════ SPENDING PATTERN ANALYSIS ══════════════
+function analyzeSpendingPatterns(zone){
+  if(!S.transactions.length)return;
+  const spends=S.transactions.filter(t=>t.type==='spend'&&t.amt>0);
+  if(spends.length<7)return; // need some history
+
+  // Weekend vs weekday
+  let weekdayTotal=0,weekdayCount=0,weekendTotal=0,weekendCount=0;
+  spends.forEach(t=>{
+    const dow=new Date(t.date+'T00:00:00').getDay();
+    if(dow===0||dow===6){weekendTotal+=t.amt;weekendCount++;}
+    else{weekdayTotal+=t.amt;weekdayCount++;}
+  });
+  const wdAvg=weekdayCount>0?weekdayTotal/weekdayCount:0;
+  const weAvg=weekendCount>0?weekendTotal/weekendCount:0;
+  const weekendHigher=weAvg>wdAvg*1.2;
+  const weekdayHigher=wdAvg>weAvg*1.2;
+
+  // Category trend: compare last 30 days vs previous 30
+  const now=Date.now();
+  const last30=spends.filter(t=>now-new Date(t.date).getTime()<30*86400000);
+  const prev30=spends.filter(t=>{const age=now-new Date(t.date).getTime();return age>=30*86400000&&age<60*86400000;});
+  const catTrends=[];
+  const cats30={},catsPrev={};
+  last30.forEach(t=>{const c=t.cat||'Other';cats30[c]=(cats30[c]||0)+t.amt;});
+  prev30.forEach(t=>{const c=t.cat||'Other';catsPrev[c]=(catsPrev[c]||0)+t.amt;});
+  Object.entries(cats30).forEach(([c,v])=>{
+    const prev=catsPrev[c]||0;
+    if(prev>0){const chg=(v-prev)/prev*100;if(Math.abs(chg)>=25)catTrends.push({cat:c,chg,v,prev});}
+  });
+
+  const insights=[];
+  if(weekendHigher)insights.push(`📅 You spend <b>${Math.round(weAvg/wdAvg*100-100)}% more on weekends</b> (avg ${fmtE(weAvg)}/day) vs weekdays (${fmtE(wdAvg)}/day).`);
+  if(weekdayHigher)insights.push(`💼 Weekday spending (${fmtE(wdAvg)}/day) is higher than weekends (${fmtE(weAvg)}/day).`);
+  catTrends.sort((a,b)=>Math.abs(b.chg)-Math.abs(a.chg)).slice(0,2).forEach(({cat,chg,v,prev})=>{
+    const dir=chg>0?'📈 up':'📉 down';
+    insights.push(`${dir} <b>${cat}</b> spending is ${dir.split(' ')[1]} ${Math.abs(Math.round(chg))}% this month (${fmtE(v)} vs ${fmtE(prev)} last month).`);
+  });
+
+  if(insights.length){
+    zone.innerHTML+=`<div style="background:linear-gradient(135deg,var(--purple-l),var(--blue-l));border-radius:var(--r);padding:16px 18px;margin-top:14px;border:.5px solid rgba(155,109,206,.2)">
+      <div style="font-size:13px;font-weight:800;color:var(--purple-d);margin-bottom:10px">🧠 Spending patterns</div>
+      ${insights.map(i=>`<div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:8px">${i}</div>`).join('')}
+    </div>`;
+  }
+}
+
+// ══════════════ TAPTAP TRANSFER PATTERN LEARNING ══════════════
+function recordTapTapTransfer(billId){
+  // Called when user marks a PHP bill as paid
+  const key='mon_taptap_history';
+  let hist=[];
+  try{hist=JSON.parse(localStorage.getItem(key)||'[]');}catch(e){}
+  const bill=S.payments.find(p=>p.id===billId);
+  if(!bill||bill.currency!=='PHP')return;
+  const bd=nextBillDate(bill);
+  const daysEarly=daysUntil(bd); // positive = paid early
+  hist.push({date:todayStr(),billId,daysEarly,rate:rate||0});
+  if(hist.length>24)hist=hist.slice(-24); // keep 24 records
+  localStorage.setItem(key,JSON.stringify(hist));
+}
+
+function getTapTapPattern(billId){
+  try{
+    const hist=JSON.parse(localStorage.getItem('mon_taptap_history')||'[]');
+    const relevant=hist.filter(h=>h.billId===billId);
+    if(relevant.length<2)return null;
+    const avgDaysEarly=relevant.reduce((a,h)=>a+h.daysEarly,0)/relevant.length;
+    return{avgDaysEarly:Math.round(avgDaysEarly),count:relevant.length};
+  }catch(e){return null;}
+}
+
+// ══════════════ WHAT-IF CALCULATOR ══════════════
+function openWhatIf(){
+  const zone=document.getElementById('whatif-zone');
+  if(!zone)return;
+  const r2=rate||63.5;
+  const{total:bills}=billsBeforePayday();
+  const sav=S.savingsTarget||0;
+  const buf=((S.bufferPct||20)/100);
+  const bal=S.balance||0;
+
+  zone.innerHTML=`<div style="background:var(--card);border-radius:var(--r);border:.5px solid var(--border2);padding:18px 20px;margin-bottom:14px;box-shadow:var(--sh)">
+    <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:14px">🤔 What-if calculator</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Adjust values to see how they affect your daily limit</div>
+
+    <div class="fld" style="margin-bottom:10px"><label>Balance (€)</label>
+      <input type="text" inputmode="decimal" id="wi-bal" value="${bal.toFixed(2).replace('.',',')}" oninput="calcWhatIf()"/></div>
+    <div class="fld" style="margin-bottom:10px"><label>Buffer %</label>
+      <input type="number" id="wi-buf" value="${Math.round(buf*100)}" min="0" max="50" oninput="calcWhatIf()"/></div>
+    <div class="fld" style="margin-bottom:14px"><label>Move to vault (€)</label>
+      <input type="text" inputmode="decimal" id="wi-vault" value="0" oninput="calcWhatIf()"/></div>
+
+    <div id="wi-result" style="background:linear-gradient(135deg,var(--purple-l),var(--pink-l));border-radius:var(--rs);padding:14px;font-size:13px;color:var(--purple-d);line-height:1.8;font-weight:600"></div>
+  </div>`;
+  calcWhatIf();
+}
+
+function calcWhatIf(){
+  const bal=parseCur(document.getElementById('wi-bal')?.value)||S.balance||0;
+  const bufPct=(parseInt(document.getElementById('wi-buf')?.value)||20)/100;
+  const vaultMove=parseCur(document.getElementById('wi-vault')?.value)||0;
+  const{total:bills}=billsBeforePayday();
+  const dl=daysUntil(getNextPayday());
+
+  const effectiveBal=Math.max(0,bal-vaultMove);
+  const spendable=Math.max(0,effectiveBal-bills);
+  const bufAmt=parseFloat((spendable*bufPct).toFixed(2));
+  const pool=Math.max(0,parseFloat((spendable-bufAmt).toFixed(2)));
+  const daily=dl>0?parseFloat((pool/dl).toFixed(2)):pool;
+
+  const r=document.getElementById('wi-result');
+  if(r){
+    const currentDaily=daysUntil(getNextPayday())>0?(S.fixedPool||0)/daysUntil(getNextPayday()):0;
+    const diff=daily-currentDaily;
+    const diffStr=diff>=0?`+${fmtE(diff)}`:`−${fmtE(Math.abs(diff))}`;
+    r.innerHTML=`Pool: <b>${fmtE(pool)}</b> · Buffer held: <b>${fmtE(bufAmt)}</b><br>
+      Daily limit: <b style="font-size:18px">${fmtE(daily)}/day</b><br>
+      vs current: <span style="color:${diff>=0?'var(--green-d)':'var(--red-d)'}">${diffStr}/day</span>
+      ${vaultMove>0?`<br>After moving ${fmtE(vaultMove)} to vault: balance ${fmtE(effectiveBal)}`:''}`;
+  }
+}
+
 // ══════════════ SECTION TOGGLES ══════════════
 function togSection(key){
   if(!S.sectionToggles)S.sectionToggles={nw:true,vault:true,streak:true,'goals-home':true};
@@ -2170,6 +2664,7 @@ function openPF(eid){
   document.getElementById('pf-end-date-hidden').value='';document.getElementById('pf-end-date-display').textContent='';
   if(eid){const p=S.payments.find(x=>x.id===eid);if(p){
     document.getElementById('pf-name').value=p.name;
+  const pfcEl=document.getElementById('pf-category');if(pfcEl&&p.billCategory){pfcEl.value=p.billCategory;}
     document.getElementById('pf-cur').value=p.currency;
     if(p.currency==='PHP')document.getElementById('pf-php').value=Math.round(p.amountPhp).toString();
     else document.getElementById('pf-eur').value=p.amountEur.toFixed(2).replace('.',',');
@@ -2568,9 +3063,22 @@ function render(){
   if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey2){
     const balAtStart=parseFloat((bal+cycleSpend).toFixed(2));
     const{total:allBills2}=billsBeforePayday();
-    const spendable2=Math.max(0,balAtStart-allBills2);
+    // Add expected recurring income arriving before payday
+    const pd3=getNextPayday();
+    const todayD3=new Date();todayD3.setHours(0,0,0,0);
+    let riBeforePayday=0;
+    (S.recurringIncome||[]).forEach(ri=>{
+      const rd=nextRIDate(ri);
+      if(rd>todayD3&&rd<=pd3){
+        // Check not already logged this cycle
+        const alreadyLogged=S.transactions.some(t=>t.type==='income'&&t.desc===ri.name&&new Date(t.date+'T00:00:00')>=cycleStart);
+        if(!alreadyLogged)riBeforePayday=parseFloat((riBeforePayday+ri.amount).toFixed(2));
+      }
+    });
+    const spendable2=Math.max(0,balAtStart+riBeforePayday-allBills2);
     const bufRes2=parseFloat((spendable2*bufferPct).toFixed(2));
     S.fixedPool=Math.max(0,parseFloat((spendable2-bufRes2).toFixed(2)));
+    if(riBeforePayday>0)S._poolRIBoost=riBeforePayday; else delete S._poolRIBoost;
     S.fixedPoolCycleKey=cycleKey2;
     persist();
   }
@@ -2629,7 +3137,9 @@ function render(){
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
         <div style="font-size:16px;font-weight:800;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'}">${fmtE(poolRemaining)}</div>
-        <div style="font-size:10px;color:var(--text2);margin-top:2px">of ${fmtE(fixedPool)} cycle pool</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px">of ${fmtE(fixedPool)} fixed this cycle${S._poolRIBoost?` · incl. ${fmtE(S._poolRIBoost)} expected income`:''}</div>
+        <button onclick="recalcPool()" style="margin-top:5px;font-size:10px;color:var(--purple-d);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline">↻ Recalculate</button>
+        <button onclick="openWhatIf()" style="margin-top:3px;font-size:10px;color:var(--blue-d);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline">🤔 What-if</button>
       </div>
     </div>
 
@@ -2695,43 +3205,7 @@ function render(){
   document.getElementById('cycle-sum').innerHTML=`<div class="scard"><div class="sc-title">Pay cycle snapshot</div><div class="sc-row"><span class="sc-lbl">Income received</span><span class="sc-val green">+${fmtE(cIn)}</span></div><div class="sc-row"><span class="sc-lbl">Total spent</span><span class="sc-val red">−${fmtE(cOut)}</span></div><div class="sc-row"><span class="sc-lbl">Net this cycle</span><span class="sc-val ${cNet>=0?'green':'red'}">${cNet>=0?'+':''}${fmtE(cNet)}</span></div>${sav>0?`<div class="sc-row"><span class="sc-lbl">Savings target</span><span class="sc-val purp">${fmtE(sav)}</span></div>`:''}</div>`;
   // History
   const hl=document.getElementById('hist-list');
-  if(!S.transactions.length){
-    hl.innerHTML='<div class="empty-r">No transactions yet</div>';
-  } else {
-    // Sort by id desc (id=Date.now() so newest first within same date)
-    const sorted=S.transactions.slice().sort((a,b)=>b.id-a.id);
-    // Group by date
-    const groups={};
-    sorted.forEach(tx=>{
-      if(!groups[tx.date])groups[tx.date]=[];
-      groups[tx.date].push(tx);
-    });
-    // Sort dates newest first
-    const dates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
-    hl.innerHTML=dates.map(date=>{
-      const dayLabel=new Date(date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-      const rows=groups[date].map(tx=>{
-        const isIn=tx.type==='income'||tx.type==='salary';
-        const isVault=tx.type==='vault';
-        const detMeta=detectNameMeta(tx.desc);
-        const ic=tx.type==='salary'?'💰':isVault?'🏦':isIn?'💰':tx.type==='spend'?detMeta.icon:'＋';
-        const iCls=tx.type==='salary'?'i-sal':isVault?'i-vlt':isIn?'i-inc':'i-spd';
-        const aC=isVault?'gold':isIn?'green':'red';
-        const sign=isIn?'+':isVault?'→':'−';
-        return`<div class="lrow">
-          <div class="rico ${iCls}">${ic}</div>
-          <div class="rinfo">
-            <div class="rname">${tx.desc}</div>
-            <div class="rsub">${tx.cat&&tx.cat!=='💸 Other'?tx.cat:''}</div>
-          </div>
-          <div class="ramt ${aC}">${sign}${fmtE(tx.amt)}</div>
-          <button class="redit" onclick="openETX(${tx.id})">edit</button>
-          <button class="rdel" onclick="deleteTx(${tx.id})">×</button>
-        </div>`;
-      }).join('');
-      return`<div style="font-size:11px;font-weight:700;color:var(--text2);padding:10px 16px 4px;letter-spacing:.04em;text-transform:uppercase;border-top:.5px solid var(--border);background:var(--bg)">${dayLabel}</div>${rows}`;
-    }).join('');
-  }
+  renderHistory();
   // Recurring income list
   const ril=document.getElementById('ri-list');
   if(ril){
@@ -2759,7 +3233,35 @@ function render(){
   const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
   const rt=getRateTrend();
   // Show ovd-style alert on home if any PHP bill is urgent
-  const phpUrgentZone=document.getElementById('php-urgent-zone');
+  // ── RI confirmation prompts ──
+  const todayStr2=todayStr();
+  (S.recurringIncome||[]).forEach(ri=>{
+    const rd=nextRIDate(ri);
+    const rdStr=rd.getFullYear()+'-'+String(rd.getMonth()+1).padStart(2,'0')+'-'+String(rd.getDate()).padStart(2,'0');
+    const alreadyLogged=S.transactions.some(t=>t.date===todayStr2&&t.type==='income'&&t.desc===ri.name);
+    const alreadyDismissed=(S._riDismissed||{})[ri.id]===todayStr2;
+    if(rdStr===todayStr2&&!alreadyLogged&&!alreadyDismissed){
+      // Show in-app prompt once per day
+      if(!window._riPrompted) window._riPrompted={};
+      if(!window._riPrompted[ri.id]){
+        window._riPrompted[ri.id]=true;
+        setTimeout(()=>{
+          const zone=document.getElementById('ri-confirm-zone');
+          if(zone&&!zone.innerHTML.includes(ri.name)){
+            zone.innerHTML+= `<div style="background:var(--green-l);border-radius:var(--rs);padding:12px 16px;margin-bottom:8px;border:.5px solid rgba(46,168,106,.2)">
+              <div style="font-size:13px;font-weight:700;color:var(--green-d);margin-bottom:6px">💚 Did you receive: ${ri.name} (${fmtE(ri.amount)})?</div>
+              <div style="display:flex;gap:8px">
+                <button onclick="confirmRI(${ri.id})" style="flex:1;padding:8px;background:var(--green);color:#fff;border:none;border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✓ Yes, received</button>
+                <button onclick="dismissRI(${ri.id})" style="padding:8px 14px;background:rgba(0,0,0,.06);color:var(--text2);border:none;border-radius:var(--rs);font-size:13px;cursor:pointer;font-family:inherit">Not yet</button>
+              </div>
+            </div>`;
+          }
+        },800);
+      }
+    }
+  });
+
+    const phpUrgentZone=document.getElementById('php-urgent-zone');
   if(phpUrgentZone&&rate){
     const urgentPhp=phpPays.filter(p=>{
       const dl=daysUntil(nextBillDate(p));
@@ -2780,10 +3282,12 @@ function render(){
   const avg30=rt?.avg30||null;
 
   // Per-bill advice function
-  function billAdvice(daysLeft, amountPhp){
+  function billAdvice(daysLeft, amountPhp, billId){
     const r2=rate||63.5;
     const todayCost=(amountPhp/r2).toFixed(2);
     const urgentText=daysLeft<=0?'DUE TODAY':'Due in '+daysLeft+'d';
+    const pattern=billId?getTapTapPattern(billId):null;
+    const patternHint=pattern&&pattern.count>=2?` (you usually transfer ${pattern.avgDaysEarly>0?pattern.avgDaysEarly+'d early':'on due date'})`:''
 
     if(daysLeft<=0) return{text:'🚨 DUE TODAY — transfer immediately! Cost: €'+todayCost,bg:'var(--red-l)',color:'var(--red-d)',urgent:true};
     if(daysLeft<=3) return{text:'⚠️ '+urgentText+' — transfer now, no time to wait. Cost today: €'+todayCost,bg:'var(--warn-l)',color:'var(--warn-d)',urgent:true};
@@ -2826,7 +3330,7 @@ function render(){
       const en=p.amountPhp/r2;
       const bd=nextBillDate(p);
       const daysLeft=daysUntil(bd);
-      const advice=billAdvice(daysLeft,p.amountPhp);
+      const advice=billAdvice(daysLeft,p.amountPhp,p.id);
       return`<div class="php-card">
         <div class="php-card-title">🇵🇭 ${p.name} — TapTap Send</div>
         <div class="phpc-row"><span class="phpc-lbl">Recipient receives</span><span class="phpc-val">${fmtP(p.amountPhp)}</span></div>
@@ -2848,7 +3352,7 @@ function render(){
     if(isPaymentExpired(a)&&isPaymentExpired(b))return 0;
     return nextBillDate(a)-nextBillDate(b);
   });
-  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
+  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${!expired&&dt!==null&&dt<=7?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
 const subLine=expired?`Ended ${p.endDate?fmtShort(p.endDate):''} · ${p.freq}`:(bd?`Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}${p.endDate?' · ends '+fmtShort(p.endDate):''}`:p.freq);
 const showEdit=!expired;
 return`<div class="lrow ${isP&&!expired?'php-t':''}" style="${expired?'opacity:.55':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">${subLine}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${showEdit?editBtn:''}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
