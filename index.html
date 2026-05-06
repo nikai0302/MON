@@ -1173,6 +1173,17 @@ function isPaymentExpired(p, asOfDate){
 }
 function nextBillDate(p){
   const now=new Date();now.setHours(0,0,0,0);
+
+  // ── Check overrides first: if a future override date exists, use it ──
+  if(p.overrides&&p.overrides.length){
+    // Find the nearest future override date
+    const futureOverrides=p.overrides
+      .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
+      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now;})
+      .sort((a,b)=>a.d-b.d);
+    if(futureOverrides.length)return futureOverrides[0].d;
+  }
+
   if(p.freq==='once'){
     const d=new Date(p.dueDate+'T00:00:00');d.setHours(0,0,0,0);return d;
   }
@@ -1186,15 +1197,10 @@ function nextBillDate(p){
     if(d<=now)d=new Date(now.getFullYear()+1,b.getMonth(),b.getDate());
     return d;
   }
-  // MONTHLY — use the day-of-month from dueDate, find next occurrence FROM the
-  // stored month forward (not always from the current month)
+  // MONTHLY
   const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
   const dayNum=base.getDate();
-  // Start searching from the stored month/year (respects future dates like June)
-  let searchY=base.getFullYear(),searchM=base.getMonth();
-  // If base date itself is still in the future, return it directly
   if(base>now)return base;
-  // Otherwise find the next occurrence after now
   let d=new Date(now.getFullYear(),now.getMonth(),Math.min(dayNum,lastDay(now.getFullYear(),now.getMonth())));
   d.setHours(0,0,0,0);
   if(d<=now){
@@ -1204,6 +1210,24 @@ function nextBillDate(p){
   }
   return d;
 }
+function getBillAmount(p){
+  // Returns the EUR amount for the next bill, respecting any override amount
+  const r2=rate||63.5;
+  const now=new Date();now.setHours(0,0,0,0);
+  if(p.overrides&&p.overrides.length){
+    const futureOverrides=p.overrides
+      .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
+      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now;})
+      .sort((a,b)=>a.d-b.d);
+    if(futureOverrides.length){
+      const ov=futureOverrides[0];
+      if(ov.amountEur)return ov.amountEur;
+      if(ov.amountPhp)return ov.amountPhp/r2;
+    }
+  }
+  return p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+}
+
 function getNextIncomeDate(){
   // Returns the nearest upcoming income date (RI or salary), or payday if none
   const today=new Date();today.setHours(0,0,0,0);
@@ -1226,7 +1250,7 @@ function billsBefore(){
   S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const bd=nextBillDate(p);
     if(bd<nextIncome){
-      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+      const eur=getBillAmount(p);
       total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur,nextIncome});
     }
   });
@@ -1239,7 +1263,7 @@ function billsBeforePayday(){
   S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const bd=nextBillDate(p);
     if(bd<pd){
-      const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+      const eur=getBillAmount(p);
       total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur});
     }
   });
