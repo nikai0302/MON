@@ -1179,7 +1179,7 @@ function nextBillDate(p){
     // Find the nearest future override date
     const futureOverrides=p.overrides
       .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
-      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now;})
+      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now||o.date===todayStr();})
       .sort((a,b)=>a.d-b.d);
     if(futureOverrides.length)return futureOverrides[0].d;
   }
@@ -1210,6 +1210,15 @@ function nextBillDate(p){
   }
   return d;
 }
+function isBillPaid(p){
+  // Returns true if this bill has been marked paid for its current due date
+  if(!p.paidUntil)return false;
+  const now=new Date();now.setHours(0,0,0,0);
+  const paidD=new Date(p.paidUntil+'T00:00:00');paidD.setHours(0,0,0,0);
+  // Consider paid if paidUntil is today or in the future
+  return paidD>=now;
+}
+
 function getBillAmount(p){
   // Returns the EUR amount for the next bill, respecting any override amount
   const r2=rate||63.5;
@@ -1217,7 +1226,7 @@ function getBillAmount(p){
   if(p.overrides&&p.overrides.length){
     const futureOverrides=p.overrides
       .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
-      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now;})
+      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now||o.date===todayStr();})
       .sort((a,b)=>a.d-b.d);
     if(futureOverrides.length){
       const ov=futureOverrides[0];
@@ -1247,7 +1256,7 @@ function billsBefore(){
   // This is what the balance currently needs to cover
   const nextIncome=getNextIncomeDate();
   const r2=rate||63.5;let total=0;const list=[];
-  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+  S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
     const bd=nextBillDate(p);
     if(bd<nextIncome){
       const eur=getBillAmount(p);
@@ -1260,7 +1269,7 @@ function billsBefore(){
 function billsBeforePayday(){
   // Returns ALL bills before payday (used for pool calculation only)
   const pd=getNextPayday();const r2=rate||63.5;let total=0;const list=[];
-  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
+  S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
     const bd=nextBillDate(p);
     if(bd<pd){
       const eur=getBillAmount(p);
@@ -1405,7 +1414,13 @@ function calPickM(c,mo){calState[c].month=mo;calState[c].view='days';renderCal(c
 function calPickY(c,yr){calState[c].year=yr;calState[c].view='months';renderCal(c)}
 function calSel(cid,ds){
   const cs=calState[cid];
-  cs.selected=ds; // just highlight — not committed yet
+  cs.selected=ds;
+  // Immediately commit to hidden field so Save works without needing Confirm
+  const hid=document.getElementById(cs.hiddenId);
+  const did=document.getElementById(cs.displayId);
+  if(hid)hid.value=ds;
+  if(did){did.textContent='✓ '+fmtDate(ds);did.style.color='var(--green-d)';}
+  if(cs.onSel)cs.onSel(ds);
   renderCal(cid);
 }
 function calToday(c){
