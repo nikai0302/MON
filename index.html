@@ -1177,10 +1177,13 @@ function nextBillDate(p){
   // ── Check direct next-date override ──
   if(p.nextDateOverride&&p.nextDateOverride.date){
     const od=new Date(p.nextDateOverride.date+'T00:00:00');od.setHours(0,0,0,0);
-    // Use override if it's today or in the future
-    if(od>=now)return od;
-    // Override date has passed — clear it
-    delete p.nextDateOverride;
+    const todayTime=now.getTime();
+    const overrideTime=od.getTime();
+    // Keep override if it's today or in the future
+    if(overrideTime>=todayTime)return od;
+    // Override is in the past — if bill hasn't been paid, clear override
+    if(!p.paidUntil){delete p.nextDateOverride;}
+    // If paid, keep showing as paid until paidUntil passes
   }
 
   if(p.freq==='once'){
@@ -1210,12 +1213,27 @@ function nextBillDate(p){
   return d;
 }
 function isBillPaid(p){
-  // Returns true if this bill has been marked paid for its current due date
   if(!p.paidUntil)return false;
   const now=new Date();now.setHours(0,0,0,0);
   const paidD=new Date(p.paidUntil+'T00:00:00');paidD.setHours(0,0,0,0);
-  // Consider paid if paidUntil is today or in the future
-  return paidD>=now;
+  // Paid if paidUntil matches the current next bill date (or is in future)
+  const nextD=nextBillDateRaw(p); // use raw (no override) to get real due date
+  return paidD.getTime()===nextD.getTime()||paidD>=now;
+}
+
+// nextBillDateRaw: same as nextBillDate but ignores overrides
+function nextBillDateRaw(p){
+  const now=new Date();now.setHours(0,0,0,0);
+  if(p.freq==='once'){const d=new Date(p.dueDate+'T00:00:00');d.setHours(0,0,0,0);return d;}
+  if(p.freq==='weekly'){const a=new Date(p.dueDate+'T00:00:00');a.setHours(0,0,0,0);let n=new Date(a);while(n<=now)n.setDate(n.getDate()+7);return n;}
+  if(p.freq==='annual'){const b=new Date(p.dueDate+'T00:00:00');let d=new Date(now.getFullYear(),b.getMonth(),b.getDate());d.setHours(0,0,0,0);if(d<=now)d=new Date(now.getFullYear()+1,b.getMonth(),b.getDate());return d;}
+  const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+  const dayNum=base.getDate();
+  if(base>now)return base;
+  let d=new Date(now.getFullYear(),now.getMonth(),Math.min(dayNum,lastDay(now.getFullYear(),now.getMonth())));
+  d.setHours(0,0,0,0);
+  if(d<=now){const nm=now.getMonth()+1>11?0:now.getMonth()+1;const ny=now.getMonth()+1>11?now.getFullYear()+1:now.getFullYear();d=new Date(ny,nm,Math.min(dayNum,lastDay(ny,nm)));}
+  return d;
 }
 
 function getBillAmount(p){
@@ -3037,8 +3055,13 @@ function render(){
   // ── Smart daily budget calculation ──
   // Step 1: What have I already spent this cycle?
   const cycleStart=getCycleStart();
+  // cycleSpend = spending transactions only (for pool remaining display)
   const cycleSpend=S.transactions
     .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='spend'&&td>=cycleStart;})
+    .reduce((a,t)=>a+t.amt,0);
+  // allOutflows = spend + bill_paid (for reconstructing cycle start balance)
+  const allOutflows=S.transactions
+    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return (t.type==='spend'||t.type==='bill_paid')&&td>=cycleStart;})
     .reduce((a,t)=>a+t.amt,0);
 
   // ── Pool: (balance - bills before payday) × (1 - buffer%) ──
@@ -3051,7 +3074,7 @@ function render(){
   // (vault/income moves reset fixedPool explicitly via S.fixedPool=0)
   const cycleKey=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
   if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey){
-    const balAtCycleStart=parseFloat((bal+cycleSpend).toFixed(2));
+    const balAtCycleStart=parseFloat((bal+allOutflows).toFixed(2)); // reconstruct using all outflows
     const poolGrossAtStart=Math.max(0,balAtCycleStart-allBillsForPool);
     const bufHeldAtStart=parseFloat((poolGrossAtStart*bufferPct).toFixed(2));
     S.fixedPool=Math.max(0,parseFloat((poolGrossAtStart-bufHeldAtStart).toFixed(2)));
