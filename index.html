@@ -1174,14 +1174,13 @@ function isPaymentExpired(p, asOfDate){
 function nextBillDate(p){
   const now=new Date();now.setHours(0,0,0,0);
 
-  // ── Check overrides first: if a future override date exists, use it ──
-  if(p.overrides&&p.overrides.length){
-    // Find the nearest future override date
-    const futureOverrides=p.overrides
-      .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
-      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now||o.date===todayStr();})
-      .sort((a,b)=>a.d-b.d);
-    if(futureOverrides.length)return futureOverrides[0].d;
+  // ── Check direct next-date override ──
+  if(p.nextDateOverride&&p.nextDateOverride.date){
+    const od=new Date(p.nextDateOverride.date+'T00:00:00');od.setHours(0,0,0,0);
+    // Use override if it's today or in the future
+    if(od>=now)return od;
+    // Override date has passed — clear it
+    delete p.nextDateOverride;
   }
 
   if(p.freq==='once'){
@@ -1223,16 +1222,9 @@ function getBillAmount(p){
   // Returns the EUR amount for the next bill, respecting any override amount
   const r2=rate||63.5;
   const now=new Date();now.setHours(0,0,0,0);
-  if(p.overrides&&p.overrides.length){
-    const futureOverrides=p.overrides
-      .map(o=>({...o,d:new Date(o.date+'T00:00:00')}))
-      .filter(o=>{o.d.setHours(0,0,0,0);return o.d>=now||o.date===todayStr();})
-      .sort((a,b)=>a.d-b.d);
-    if(futureOverrides.length){
-      const ov=futureOverrides[0];
-      if(ov.amountEur)return ov.amountEur;
-      if(ov.amountPhp)return ov.amountPhp/r2;
-    }
+  if(p.nextDateOverride){
+    if(p.nextDateOverride.amountEur)return p.nextDateOverride.amountEur;
+    if(p.nextDateOverride.amountPhp)return p.nextDateOverride.amountPhp/r2;
   }
   return p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
 }
@@ -1674,20 +1666,16 @@ function saveBillEdit(){
   const r2=rate||63.5;
   if(!newDate){showToast('Please select a date');return;}
   if(scope==='next'){
-    // Add a one-off override: store a "next bill override" on the payment
-    if(!p.overrides)p.overrides=[];
-    const override={date:newDate};
+    // Store as direct field — simpler and more reliable
+    p.nextDateOverride={date:newDate};
     if(rawAmt){
       const amt=parseCur(rawAmt);
       if(amt>0){
-        if(p.currency==='PHP'){override.amountPhp=amt;override.amountEur=amt/r2;}
-        else{override.amountEur=amt;}
+        if(p.currency==='PHP'){p.nextDateOverride.amountPhp=amt;p.nextDateOverride.amountEur=amt/r2;}
+        else{p.nextDateOverride.amountEur=amt;}
       }
     }
-    // Remove any existing override for same date
-    p.overrides=p.overrides.filter(o=>o.date!==newDate);
-    p.overrides.push(override);
-    showToast('✅ Next bill updated — reverts after');
+    showToast('✅ Next bill moved to '+fmtDate(newDate));
   } else {
     // Update permanently including end date
     p.dueDate=newDate;
