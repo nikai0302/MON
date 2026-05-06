@@ -602,7 +602,7 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
 
-        <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% of spendable pool held back as emergency cushion — NOT savings. E.g. 20% on €100 pool = €20 reserved, €80 safe to spend.</div></div>
+        <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% held back from spendable pool as cushion. E.g. 20% on €100 pool = €80 to spend, €20 reserved.</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
             <span style="font-size:14px;font-weight:700;color:var(--purple)">%</span>
@@ -958,7 +958,6 @@ async function sendRateNotification(advice, dueContexts){
   }
   localStorage.setItem('mon_last_notif',Date.now().toString());
   // Reset in-session flag after sending so next rate check can notify again after 4h
-  setTimeout(()=>{window._notifiedUrgent=false;},4*60*60*1000);
 }
 
 // Request notification permission on first rate advice
@@ -1006,8 +1005,9 @@ async function fetchRateHistoryAndAdvise(){
   // Refresh if rate changed or 5 min passed
   // Refresh if: first run, rate changed, or 5 min passed
   const rateChanged=Math.abs((rate||0)-(_rateAdviceCache.lastRate||0))>0.01;
-  const stale=Date.now()-_rateAdviceCache.ts > 5*60*1000;
-  if(!rateChanged && !stale && _rateAdviceCache.text && _rateAdviceCache.avg7)return;
+  const stale=!_rateAdviceCache.ts||Date.now()-_rateAdviceCache.ts > 5*60*1000;
+  // Always fetch if stale (>5min), even if rate unchanged
+  if(!rateChanged && !stale && _rateAdviceCache.avg7)return;
   _rateAdviceCache.lastRate=rate;
 
   const phpPays=S.payments.filter(p=>p.currency==='PHP'&&!isPaymentExpired(p));
@@ -2722,13 +2722,16 @@ function _vaultUI(mode){
   const bal=parseFloat((S.balance||0).toFixed(2));
   const vault=parseFloat((S.vault||0).toFixed(2));
   const{total:bills}=billsBeforePayday();
-  const maxDep=parseFloat(Math.max(0,bal-bills).toFixed(2));
+  const bufPct2=(S.bufferPct!==undefined?S.bufferPct:20)/100;
+  const poolGross2=Math.max(0,bal-bills);
+  const bufReserve=parseFloat((poolGross2*bufPct2).toFixed(2));
+  const maxDep=parseFloat(Math.max(0,poolGross2-bufReserve).toFixed(2));
   document.getElementById('vsh-title').textContent=isDeposit?'Deposit to Vault':'Withdraw from Vault';
   document.getElementById('vsh-btn').textContent=isDeposit?'Deposit':'Withdraw';
   document.getElementById('vsh-amt').value='';
   document.getElementById('vsh-err').style.display='none';
   document.getElementById('vsh-info').innerHTML=isDeposit
-    ?'Balance: <b>'+fmtE(bal)+'</b> &nbsp;|&nbsp; Bills before payday: <b>'+fmtE(bills)+'</b><br>Max safe deposit: <b>'+fmtE(maxDep)+'</b>'+(maxDep<=0?' &mdash; <span style="color:var(--red-d)">balance fully needed for bills</span>':'')
+    ?'Balance: <b>'+fmtE(bal)+'</b><br>Bills: <b>'+fmtE(bills)+'</b> · Buffer ('+Math.round(bufPct2*100)+'%): <b>'+fmtE(bufReserve)+'</b><br>Max deposit: <b>'+fmtE(maxDep)+'</b>'+(maxDep<=0?' &mdash; <span style="color:var(--red-d)">nothing available after bills+buffer</span>':'')
     :'Vault balance: <b>'+fmtE(vault)+'</b>';
   document.getElementById('vsh').style.display='flex';
   setTimeout(()=>document.getElementById('vsh-amt').focus(),300);
@@ -2802,8 +2805,8 @@ function sv(){
   const svtVal=parseCur(document.getElementById('set-svt').value);
   if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
   S.payday=document.getElementById('set-pd').value;
-  const buf=parseInt(document.getElementById('set-buffer').value);
-  if(!isNaN(buf)&&buf>=0&&buf<=50)S.bufferPct=buf;
+  const bufVal=parseInt(document.getElementById('set-buffer').value);
+  if(!isNaN(bufVal)&&bufVal>=0&&bufVal<=50)S.bufferPct=bufVal;
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   // Reset pool so it recalculates with new values
   render(); // render recalculates and persists
@@ -2874,13 +2877,14 @@ function render(){
   const{total:billsEur,nextIncome:nextIncomeDate}=billsBefore(); // bills before next income
   const{total:billsEurAll}=billsBeforePayday(); // all bills before payday (for pool)
   const sav=S.savingsTarget||0;
-  const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
+  // bufferAmt is a flat euro amount
   // What's locked: bills due before payday + monthly savings target
   const locked=billsEur+sav;
   // What's left after locking away obligations
   const spendable=Math.max(0,bal-locked);
   // Buffer: % of spendable held back as extra cushion
-  const bufferAmt=parseFloat((spendable*bufferPct).toFixed(2));
+  const _bPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
+  const bufferAmt=parseFloat((spendable*_bPct).toFixed(2));
   // Safe to spend = what's left after buffer
   const safe=Math.max(0,parseFloat((spendable-bufferAmt).toFixed(2)));
   const res=locked; // alias for compat
@@ -2997,9 +3001,24 @@ function render(){
   // ── Pool: (balance - bills before payday) × (1 - buffer%) ──
   // Live calculation — updates whenever balance, bills, or buffer changes
   const{total:allBillsForPool}=billsBeforePayday();
-  const poolSpendable=Math.max(0,parseFloat((bal-allBillsForPool).toFixed(2)));
-  const bufferHeld=parseFloat((poolSpendable*bufferPct).toFixed(2));
-  const fixedPool=Math.max(0,parseFloat((poolSpendable-bufferHeld).toFixed(2)));
+  const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
+
+  // ── Fixed pool: locked at cycle start, not affected by daily spending ──
+  // Reconstruct start-of-cycle balance = current balance + all spending this cycle
+  // (vault/income moves reset fixedPool explicitly via S.fixedPool=0)
+  const cycleKey=cycleStart.getFullYear()+'-'+String(cycleStart.getMonth()+1).padStart(2,'0')+'-'+String(cycleStart.getDate()).padStart(2,'0');
+  if(!S.fixedPool||S.fixedPoolCycleKey!==cycleKey){
+    const balAtCycleStart=parseFloat((bal+cycleSpend).toFixed(2));
+    const poolGrossAtStart=Math.max(0,balAtCycleStart-allBillsForPool);
+    const bufHeldAtStart=parseFloat((poolGrossAtStart*bufferPct).toFixed(2));
+    S.fixedPool=Math.max(0,parseFloat((poolGrossAtStart-bufHeldAtStart).toFixed(2)));
+    S.fixedPoolCycleKey=cycleKey;
+    persist();
+  }
+  const fixedPool=S.fixedPool||0;
+  // Buffer is shown based on current pool size for display
+  const poolGross=Math.max(0,parseFloat((bal+cycleSpend-allBillsForPool).toFixed(2)));
+  const bufferHeld=parseFloat((poolGross*bufferPct).toFixed(2));
 
   // Pool remaining = pool - what's been spent this cycle
   const poolRemaining=Math.max(0,parseFloat((fixedPool-cycleSpend).toFixed(2)));
@@ -3048,8 +3067,8 @@ function render(){
       </div>
 
       <div style="background:var(--warn-l);border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%) emergency</div>
-        <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferAmt)}</div>
+        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
+        <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferHeld)}</div>
       </div>
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
@@ -3241,8 +3260,7 @@ function render(){
     }
   } else {
     setBadge(false);
-    window._notifiedUrgent=false;
-  }
+    }
 
   document.getElementById('php-zone').innerHTML=phpPays.length&&rate?
     phpPays.map(p=>{
