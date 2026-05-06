@@ -3016,9 +3016,12 @@ function render(){
     persist();
   }
   const fixedPool=S.fixedPool||0;
-  // Buffer is shown based on current pool size for display
+  // Buffer = % of the gross pool at cycle start
   const poolGross=Math.max(0,parseFloat((bal+cycleSpend-allBillsForPool).toFixed(2)));
   const bufferHeld=parseFloat((poolGross*bufferPct).toFixed(2));
+  // If spending exceeded pool, excess comes out of buffer
+  const overSpend=Math.max(0,parseFloat((cycleSpend-fixedPool).toFixed(2)));
+  const bufferRemaining=Math.max(0,parseFloat((bufferHeld-overSpend).toFixed(2)));
 
   // Pool remaining = pool - what's been spent this cycle
   const poolRemaining=Math.max(0,parseFloat((fixedPool-cycleSpend).toFixed(2)));
@@ -3066,9 +3069,10 @@ function render(){
         ${billsEurAll>billsEur?`<div style="font-size:10px;color:var(--red);margin-top:2px">Total till payday: ${fmtE(billsEurAll)}</div>`:''}
       </div>
 
-      <div style="background:var(--warn-l);border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:var(--warn-d);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
-        <div style="font-size:16px;font-weight:800;color:var(--warn-d)">${fmtE(bufferHeld)}</div>
+      <div style="background:${overSpend>0?'var(--red-l)':'var(--warn-l)'};border-radius:var(--rx);padding:9px 11px">
+        <div style="font-size:10px;font-weight:700;color:${overSpend>0?'var(--red-d)':'var(--warn-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
+        <div style="font-size:16px;font-weight:800;color:${overSpend>0?'var(--red-d)':'var(--warn-d)'}">${fmtE(bufferRemaining)}</div>
+        ${overSpend>0?`<div style="font-size:10px;color:var(--red-d);margin-top:2px">⚠️ ${fmtE(overSpend)} spent from buffer</div>`:''}
       </div>
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
@@ -3122,7 +3126,7 @@ function render(){
     cls='bad';
     msg='Spending pool exhausted for this cycle.';
     amt='€0';
-    sub='Spent '+fmtE(cycleSpend)+' of '+fmtE(fixedPool)+' pool · payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Buffer remaining: '+fmtE(bufferRemaining)+' · payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
     cls='warn';msg='Daily limit reached for today';amt='€0';
     sub='Pool '+fmtE(poolRemaining)+' left · payday in '+dl+' day'+(dl!==1?'s':'');
