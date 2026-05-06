@@ -1525,7 +1525,7 @@ function openETX(id){
 function closeETX(e){if(!e||e.target===document.getElementById('etx-sheet'))document.getElementById('etx-sheet').classList.remove('open')}
 function saveETX(){
   const id=parseInt(document.getElementById('etx-id').value);const tx=S.transactions.find(t=>t.id===id);if(!tx)return;
-  const na=parseCur(document.getElementById('etx-amt').value);if(!na||na<=0){alert('Invalid amount');return}
+  const na=parseCur(document.getElementById('etx-amt').value);if(!na||na<=0){showToast('❌ Invalid amount');return}
   const nd=document.getElementById('etx-desc').value.trim()||tx.desc;const ndt=document.getElementById('etx-date-hidden').value||tx.date;
   const isIn=tx.type==='income'||tx.type==='salary';
   S.balance=parseFloat(((S.balance||0)+(isIn?-tx.amt:tx.amt)+(isIn?na:-na)).toFixed(2));
@@ -1539,7 +1539,7 @@ function confirmRI(riId){
   S.balance=parseFloat(((S.balance||0)+ri.amount).toFixed(2));
   S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  // Reset pool since balance changed
+  S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();render();
   showToast('💚 '+fmtE(ri.amount)+' logged from '+ri.name);
 }
@@ -1570,6 +1570,8 @@ function markPaid(pid){
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();render();
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
+  S.fixedPool=0;S.fixedPoolCycleKey='';
+  persist();render();
   showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted from balance');
 }
 
@@ -1685,6 +1687,7 @@ function saveBillEdit(){
     }
     showToast(newEndDate?'✅ Schedule updated · ends '+fmtShort(newEndDate):'✅ Schedule updated permanently');
   }
+  S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
   render();
@@ -1761,9 +1764,9 @@ function submitRIF(){
   const amount=parseCur(document.getElementById('rif-amount').value);
   const date=document.getElementById('rif-date-hidden').value;
   const freq=document.getElementById('rif-freq').value;
-  if(!name){alert('Please enter a name.');return;}
-  if(!amount||amount<=0){alert('Please enter an amount.');return;}
-  if(!date){alert('Please select a date.');return;}
+  if(!name){showToast('❌ Please enter a name.');return;}
+  if(!amount||amount<=0){showToast('❌ Please enter an amount.');return;}
+  if(!date){showToast('❌ Please select a date.');return;}
   if(rifEditId){
     const ri=S.recurringIncome.find(x=>x.id===rifEditId);
     if(ri){ri.name=name;ri.amount=amount;ri.date=date;ri.freq=freq;}
@@ -2659,10 +2662,10 @@ function prevEur(){const e=parseCur(document.getElementById('pf-eur').value);doc
 function prevPhp(){const p=parseCur(document.getElementById('pf-php').value);const r2=rate||63.5;document.getElementById('pf-php-hint').textContent=p>0?'You send ≈ '+fmtE(p/r2)+' · @ ₱'+r2.toFixed(2)+'/€ today':''}
 function submitPF(){
   const name=document.getElementById('pf-name').value.trim();const cur=document.getElementById('pf-cur').value;const freq=document.getElementById('pf-freq').value;const dueDate=document.getElementById('pf-date-hidden').value;
-  if(!name){alert('Please enter a name.');return}if(!dueDate){alert('Please select a due date.');return}
+  if(!name){showToast('❌ Please enter a name.');return}if(!dueDate){showToast('❌ Please select a due date.');return}
   const r2=rate||63.5;let amountEur,amountPhp=null;
-  if(cur==='PHP'){amountPhp=parseCur(document.getElementById('pf-php').value);if(!amountPhp||amountPhp<=0){alert('Please enter the PHP amount.');return}amountEur=amountPhp/r2}
-  else{amountEur=parseCur(document.getElementById('pf-eur').value);if(!amountEur||amountEur<=0){alert('Please enter the EUR amount.');return}}
+  if(cur==='PHP'){amountPhp=parseCur(document.getElementById('pf-php').value);if(!amountPhp||amountPhp<=0){showToast('❌ Please enter PHP amount.');return}amountEur=amountPhp/r2}
+  else{amountEur=parseCur(document.getElementById('pf-eur').value);if(!amountEur||amountEur<=0){showToast('❌ Please enter EUR amount.');return}}
   const endDate=document.getElementById('pf-end-date-hidden').value||null;
   if(pfEditId){const p=S.payments.find(x=>x.id===pfEditId);if(p){p.name=name;p.amountEur=amountEur;p.amountPhp=amountPhp;p.currency=cur;p.dueDate=dueDate;p.freq=freq;p.endDate=endDate;p.icon=detectNameMeta(name).icon;}}
   else{S.payments.push({id:Date.now(),name,amountEur,amountPhp,currency:cur,dueDate,freq,endDate,icon:detectNameMeta(name).icon})}
@@ -2685,7 +2688,7 @@ function openGF(eid){
 function closeGF(e){if(!e||e.target===document.getElementById('gf-sheet'))document.getElementById('gf-sheet').classList.remove('open')}
 function submitGF(){
   const name=document.getElementById('gf-name').value.trim();const target=parseCur(document.getElementById('gf-target').value);const saved=parseCur(document.getElementById('gf-saved').value)||0;const monthly=parseCur(document.getElementById('gf-monthly').value)||0;const targetDate=document.getElementById('gf-date-hidden').value||null;
-  if(!name){alert('Please enter a name.');return}if(!target||target<=0){alert('Please enter a target amount.');return}
+  if(!name){showToast('❌ Please enter a name.');return}if(!target||target<=0){showToast('❌ Please enter a target amount.');return}
   if(gfEditId){const g=S.goals.find(x=>x.id===gfEditId);if(g){g.name=name;g.target=target;g.saved=saved;g.monthly=monthly;g.targetDate=targetDate}}
   else{const i=S.goals.length%10;S.goals.push({id:Date.now(),name,target,saved,monthly,targetDate,icon:GICONS[i],color:GCOLS[i]})}
   persist();document.getElementById('gf-sheet').classList.remove('open');renderGoals();showToast('🎯 Goal saved!');
@@ -2769,7 +2772,7 @@ function vshValidate(){
   const amt=parseCur(document.getElementById('vsh-amt').value);
   const errEl=document.getElementById('vsh-err');
   if(isNaN(amt)||amt<=0){errEl.style.display='none';return false;}
-  if(_vaultMode==='goal'){errEl.style.display='none';return true;} // no balance check for goal
+  if(_vaultMode==='goal'||_vaultMode==='cover'){errEl.style.display='none';return true;}
   const bal=parseFloat((S.balance||0).toFixed(2));
   const vault=parseFloat((S.vault||0).toFixed(2));
   let err='';
@@ -2800,6 +2803,19 @@ function vshConfirm(){
     g.saved=parseFloat((g.saved+amt).toFixed(2));
     document.getElementById('vsh').style.display='none';
     persist();renderGoals();showToast('✓ Added '+fmtE(amt)+' to '+g.name);
+    return;
+  } else if(_vaultMode==='cover'){
+    const vault2=parseFloat((S.vault||0).toFixed(2));
+    const bal2=parseFloat((S.balance||0).toFixed(2));
+    if(amt>vault2){showToast('❌ Not enough in vault');return;}
+    S.vault=parseFloat((vault2-amt).toFixed(2));
+    S.balance=parseFloat((bal2+amt).toFixed(2));
+    S.transactions.push({id:Date.now(),type:'income',desc:'From vault to cover cashflow ('+fmtE(amt)+')',cat:'🏦 Vault',amt,date:todayStr()});
+    document.getElementById('vsh').style.display='none';
+    S.fixedPool=0;S.fixedPoolCycleKey='';
+    const bi3=document.getElementById('set-bal');if(bi3)bi3.value=(S.balance||0).toFixed(2).replace('.',',');
+    persist();render();
+    showToast('✅ '+fmtE(amt)+' moved from vault to balance');
     return;
   } else if(_vaultMode==='deposit'){
     S.balance=parseFloat((bal-amt).toFixed(2));
@@ -2859,7 +2875,7 @@ function importData(event){
       const parsed=JSON.parse(e.target.result);
       // Validate it looks like MON data
       if(typeof parsed.balance==='undefined'&&typeof parsed.transactions==='undefined'){
-        alert("This does not look like a MON backup file.");return;
+        showToast('❌ Not a valid MON backup file.');return;
       }
       if(!confirm('This will replace ALL your current data with the backup. Continue?'))return;
       S={...DEF,...parsed};
@@ -2877,7 +2893,7 @@ function importData(event){
       render();
       showToast('✅ Backup restored successfully!',3000);
     }catch(err){
-      alert("Failed to read backup file. Make sure it is a valid MON export.");
+      showToast('❌ Failed to read backup file.');
     }
   };
   reader.readAsText(file);
