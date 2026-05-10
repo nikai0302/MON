@@ -1621,6 +1621,16 @@ function billActionChoice(scope){
   openBillEdit(billActionPid, scope);
 }
 
+function openCalBillEdit(pid, ds){
+  // Show choice sheet for this calendar date context
+  const p=S.payments.find(x=>x.id===pid);if(!p)return;
+  const dateLabel=new Date(ds+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  // Use a simple choice via the bill action sheet but pre-select the date
+  _calEditDs=ds;
+  openBillAction(pid);
+}
+let _calEditDs=null;
+
 function openBillEdit(pid, scope){
   const p=S.payments.find(x=>x.id===pid);if(!p)return;
   const r2=rate||63.5;
@@ -1711,7 +1721,13 @@ function saveBillEdit(){
   S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
+  // Invalidate calendar cache so it recalculates with new bill dates
+  window._calDayBals=null;
   render();
+  // If we're on calendar tab, re-render it
+  if(document.getElementById('tab-calendar')&&document.getElementById('tab-calendar').classList.contains('active')){
+    renderCalView();
+  }
 }
 
 // ══════════════ SALARY CHANGE ══════════════
@@ -1936,15 +1952,35 @@ function getEventsOnDate(ds){
       events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true,riId:ri.id});
   });
 
-  // Scheduled bills — only from their start date (dueDate) onwards, and before end date
+  // Scheduled bills — respects nextDateOverride and isBillPaid
   S.payments.filter(p=>!isPaymentExpired(p,target)).forEach(p=>{
-    const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+    const eur=getBillAmount(p);
+
+    // Check if this bill falls on this date:
+    // 1. If override exists: only show on override date, not original
+    if(p.nextDateOverride&&p.nextDateOverride.date){
+      const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+      const ovdTime=ovd.getTime();
+      if(target.getTime()===ovdTime){
+        // Show on override date (even if already paid)
+        const paid=isBillPaid(p);
+        events.push({type:'bill',name:p.name+(paid?' ✓':''),amt:eur,
+          icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
+          sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
+          scheduled:true,positive:false,paymentId:p.id,paid});
+      }
+      // Don't show on original date when override is active
+      return;
+    }
+
+    // No override — show on recurring date (skip if already paid)
+    if(isBillPaid(p))return;
     const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
     if(occursOnDate(base,target,p.freq))
       events.push({type:'bill',name:p.name,amt:eur,
         icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
         sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
-        scheduled:true,positive:false,paymentId:p.id});
+        scheduled:true,positive:false,paymentId:p.id,paid:false});
   });
 
   return events;
@@ -2032,10 +2068,27 @@ function getBalanceOnDate(ds){
         }
       });
 
-      // ── Bills ──
+      // ── Bills (respects nextDateOverride and paid status) ──
       S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
-        const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;
+        const eur=getBillAmount(p);
         const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+
+        // If bill has a date override, apply it on the override date instead
+        if(p.nextDateOverride&&p.nextDateOverride.date){
+          if(!isBillPaid(p)){
+            const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+            if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
+              const ovDay=ovd.getDate();
+              if(ovDay>=startDay&&ovDay<=endDay)
+                bal=parseFloat((bal-eur).toFixed(2));
+            }
+          }
+          return; // skip normal recurring calculation
+        }
+
+        // Skip if already paid
+        if(isBillPaid(p))return;
+
         if(p.freq==='monthly'){
           const bDay=Math.min(base.getDate(),daysInCurMonth);
           const baseYM=base.getFullYear()*12+base.getMonth();
@@ -2230,7 +2283,7 @@ function calViewShowDetail(ds){
   const makeEditBtn=(ev)=>{
     if(!ev.scheduled)return '';
     if(ev.type==='bill'&&ev.paymentId)
-      return`<button class="redit" onclick="openBillAction(${ev.paymentId});calViewSelected='${ds}'" style="margin-left:6px">edit</button>`;
+      return`<button class="redit" onclick="openCalBillEdit(${ev.paymentId},'${ds}')" style="margin-left:6px">edit</button>`;
     if((ev.type==='income'||ev.type==='salary')&&ev.riId)
       return`<button class="redit" onclick="openRIAction(${ev.riId})" style="margin-left:6px">edit</button>`;
     if(ev.type==='salary')
