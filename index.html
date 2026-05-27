@@ -602,6 +602,12 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
 
+        <div class="strow"><div class="stlbl"><div class="n">Mark paid button</div><div class="s">Show "mark paid" on bills within this many days of due date.</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input class="stinp" id="set-markpaiddays" type="number" min="0" max="14" placeholder="3" style="width:55px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
+            <span style="font-size:13px;color:var(--text2)">days before</span>
+          </div>
+        </div>
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% held back from spendable pool as cushion. E.g. 20% on €100 pool = €80 to spend, €20 reserved.</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
@@ -794,7 +800,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:''};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',markPaidDays:3};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -843,7 +849,7 @@ function checkMonthlyBudgetRollover(){
   if(lastCycleEnd>todayD)return; // cycle hasn't completed yet
   const cycleSpend=S.transactions
     .filter(t=>{
-      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      const td=parseDateStr(t.date);
       return t.type==='spend'&&td>=lastCycleStart&&td<lastCycleEnd;
     })
     .reduce((a,t)=>a+t.amt,0);
@@ -1699,7 +1705,6 @@ function saveBillEdit(){
   const r2=rate||63.5;
   if(!newDate){showToast('Please select a date');return;}
   if(scope==='next'){
-    // Store as direct field — simpler and more reliable
     p.nextDateOverride={date:newDate};
     if(rawAmt){
       const amt=parseCur(rawAmt);
@@ -1708,7 +1713,19 @@ function saveBillEdit(){
         else{p.nextDateOverride.amountEur=amt;}
       }
     }
-    showToast('✅ Next bill moved to '+fmtDate(newDate));
+    // If moved to today — auto-deduct balance immediately
+    if(newDate===todayStr()){
+      const eur=getBillAmount(p);
+      const cat=p.billCategory||'📦 Other';
+      S.balance=parseFloat(((S.balance||0)-eur).toFixed(2));
+      S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
+      const rawNextD=nextBillDateRaw(p);
+      p.paidUntil=rawNextD.getFullYear()+'-'+String(rawNextD.getMonth()+1).padStart(2,'0')+'-'+String(rawNextD.getDate()).padStart(2,'0');
+      const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+      showToast('✅ '+p.name+' moved to today & paid — '+fmtE(eur)+' deducted');
+    } else {
+      showToast('✅ Next bill moved to '+fmtDate(newDate));
+    }
   } else {
     // Update permanently including end date
     p.dueDate=newDate;
@@ -1997,12 +2014,24 @@ function getBalanceOnDate(ds){
   let bal=parseFloat((S.balance||0).toFixed(2));
   const r2=rate||63.5;
 
-  if(target.getTime()===todayD.getTime()) return bal;
+  if(target.getTime()===todayD.getTime()){
+    // Deduct unpaid bills due today (including those moved here via override)
+    const todayDs=ds;
+    S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
+      const bd=nextBillDate(p);
+      const bdStr=bd.getFullYear()+'-'+String(bd.getMonth()+1).padStart(2,'0')+'-'+String(bd.getDate()).padStart(2,'0');
+      if(bdStr===todayDs){
+        const eur=getBillAmount(p);
+        bal=parseFloat((bal-eur).toFixed(2));
+      }
+    });
+    return parseFloat(bal.toFixed(2));
+  }
 
   // PAST: undo logged transactions after target date
   if(target<todayD){
     S.transactions.forEach(t=>{
-      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      const td=parseDateStr(t.date);
       if(td>target){
         const isIn=t.type==='income'||t.type==='salary';
         bal=parseFloat((bal+(isIn?-t.amt:t.amt)).toFixed(2));
@@ -2926,6 +2955,8 @@ function sv(){
   S.payday=document.getElementById('set-pd').value;
   const bufVal=parseInt(document.getElementById('set-buffer').value);
   if(!isNaN(bufVal)&&bufVal>=0&&bufVal<=50)S.bufferPct=bufVal;
+  const mpdVal=parseInt(document.getElementById('set-markpaiddays')?.value);
+  if(!isNaN(mpdVal)&&mpdVal>=0&&mpdVal<=14)S.markPaidDays=mpdVal;
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   // Reset pool so it recalculates with new values
   render(); // render recalculates and persists
@@ -2968,6 +2999,7 @@ function importData(event){
       document.getElementById('set-pd').value=S.payday||'last';
   // Restore buffer field value (safe — input is standalone, not in a form)
   const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const mpdEl=document.getElementById('set-markpaiddays');if(mpdEl&&document.activeElement!==mpdEl)mpdEl.value=S.markPaidDays!==undefined?S.markPaidDays:3;
   // monthlyBudget field removed from settings UI
       render();
       showToast('✅ Backup restored successfully!',3000);
@@ -3076,7 +3108,7 @@ function render(){
       const desc=(t.desc||'').toLowerCase();
       // Must explicitly be a deposit, not withdrawal/cover/auto
       if(!desc.includes('deposit'))return false;
-      const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);
+      const td=parseDateStr(t.date);
       return td>=cycleStart2;
     })
     .reduce((a,t)=>a+t.amt,0);
@@ -3417,7 +3449,9 @@ function render(){
     if(isPaymentExpired(a)&&isPaymentExpired(b))return 0;
     return nextBillDate(a)-nextBillDate(b);
   });
-  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${!expired&&dt!==null&&dt<=0?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
+  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const paidAlready=isBillPaid(p);
+  const showPaidBtn=!expired&&!paidAlready&&dt!==null&&dt<=(S.markPaidDays!==undefined?S.markPaidDays:3);
+  const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${paidAlready?'<span class="redit" style="background:var(--green-l);color:var(--green-d);cursor:default">✓ paid</span>':showPaidBtn?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">mark paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
 const subLine=expired?`Ended ${p.endDate?fmtShort(p.endDate):''} · ${p.freq}`:(bd?`Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}${p.endDate?' · ends '+fmtShort(p.endDate):''}`:p.freq);
 const showEdit=!expired;
 return`<div class="lrow ${isP&&!expired?'php-t':''}" style="${expired?'opacity:.55':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">${subLine}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${showEdit?editBtn:''}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
@@ -3504,6 +3538,7 @@ window.addEventListener('load',()=>{
   document.getElementById('set-pd').value=S.payday||'last';
   // Restore buffer field value (safe — input is standalone, not in a form)
   const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const mpdEl=document.getElementById('set-markpaiddays');if(mpdEl&&document.activeElement!==mpdEl)mpdEl.value=S.markPaidDays!==undefined?S.markPaidDays:3;
   // monthlyBudget field removed from settings UI
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
