@@ -2015,15 +2015,11 @@ function getBalanceOnDate(ds){
   const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()){
-    // Deduct unpaid bills due today (including those moved here via override)
-    const todayDs=ds;
-    S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
-      const bd=nextBillDate(p);
-      const bdStr=bd.getFullYear()+'-'+String(bd.getMonth()+1).padStart(2,'0')+'-'+String(bd.getDate()).padStart(2,'0');
-      if(bdStr===todayDs){
-        const eur=getBillAmount(p);
-        bal=parseFloat((bal-eur).toFixed(2));
-      }
+    // Only deduct bills explicitly moved to today via nextDateOverride
+    // (naturally recurring bills on today's date are already in S.balance via real transactions)
+    S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)&&p.nextDateOverride&&p.nextDateOverride.date===ds).forEach(p=>{
+      const eur=getBillAmount(p);
+      bal=parseFloat((bal-eur).toFixed(2));
     });
     return parseFloat(bal.toFixed(2));
   }
@@ -3449,9 +3445,8 @@ function render(){
     if(isPaymentExpired(a)&&isPaymentExpired(b))return 0;
     return nextBillDate(a)-nextBillDate(b);
   });
-  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const paidAlready=isBillPaid(p);
-  const showPaidBtn=!expired&&!paidAlready&&dt!==null&&dt<=(S.markPaidDays!==undefined?S.markPaidDays:3);
-  const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${paidAlready?'<span class="redit" style="background:var(--green-l);color:var(--green-d);cursor:default">✓ paid</span>':showPaidBtn?'<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid('+p.id+')">mark paid</button>':''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
+  pl.innerHTML=sortedPayments.map(p=>{const expired=isPaymentExpired(p);const bd=expired?null:nextBillDate(p);const dt=bd?daysUntil(bd):null;const bfPD=bd&&bd<pd2;const isP=p.currency==='PHP';const eur=isP?p.amountPhp/r2:p.amountEur;const iCls=isP?'i-php':bfPD?'i-bil':'i-inc';const aCls=expired?'':''+( dt<=0?'red':isP?'php':bfPD?'warn':'');const detectedIcon=p.icon||detectNameMeta(p.name).icon;const ic=isP?'🇵🇭':dt!==null&&dt<=0?'⚠️':detectedIcon;const tags=[isP?'<span class="tag tp">TapTap PHP</span>':'',bfPD&&dt>0?'<span class="tag tw">BEFORE PAYDAY</span>':'',dt!==null&&dt<=0?'<span class="tag tr">DUE NOW</span>':'',expired?'<span class="tag" style="background:var(--green-l);color:var(--green-d)">ENDED</span>':''].join('');const _paid=isBillPaid(p);const _mpd=S.markPaidDays!==undefined?S.markPaidDays:3;const _showPaid=!expired&&!_paid&&dt!==null&&dt<=_mpd;
+  const editBtn=p.freq!=='once'?`<button class="redit" onclick="openBillAction(${p.id})">edit</button>${_paid?'<span class="redit" style="background:var(--green-l);color:var(--green-d);cursor:default">✓ paid</span>':_showPaid?`<button class="redit" style="background:var(--green-l);color:var(--green-d)" onclick="markPaid(${p.id})">mark paid</button>`:''}`:`<button class="redit" onclick="openPF(${p.id})">edit</button>`;
 const subLine=expired?`Ended ${p.endDate?fmtShort(p.endDate):''} · ${p.freq}`:(bd?`Due ${fmtShort(bd)} · ${dt>0?dt+'d':'today'} · ${p.freq}${isP?' · '+fmtP(p.amountPhp):''}${p.endDate?' · ends '+fmtShort(p.endDate):''}`:p.freq);
 const showEdit=!expired;
 return`<div class="lrow ${isP&&!expired?'php-t':''}" style="${expired?'opacity:.55':''}"><div class="rico ${iCls}">${ic}</div><div class="rinfo"><div class="rname">${p.name}${tags}</div><div class="rsub">${subLine}</div></div><div class="ramt ${aCls}">${fmtE(eur)}</div>${showEdit?editBtn:''}<button class="rdel" onclick="delPayment(${p.id})">×</button></div>`}).join('')}
