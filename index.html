@@ -1176,7 +1176,7 @@ function nextBillDate(p){
 
   // ── Check direct next-date override ──
   if(p.nextDateOverride&&p.nextDateOverride.date){
-    const od=new Date(p.nextDateOverride.date+'T00:00:00');od.setHours(0,0,0,0);
+    const od=parseDateStr(p.nextDateOverride.date);
     const todayTime=now.getTime();
     const overrideTime=od.getTime();
     // Keep override if it's today or in the future
@@ -1200,7 +1200,7 @@ function nextBillDate(p){
     return d;
   }
   // MONTHLY
-  const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+  const base=parseDateStr(p.dueDate);
   const dayNum=base.getDate();
   if(base>now)return base;
   let d=new Date(now.getFullYear(),now.getMonth(),Math.min(dayNum,lastDay(now.getFullYear(),now.getMonth())));
@@ -1212,10 +1212,16 @@ function nextBillDate(p){
   }
   return d;
 }
+function parseDateStr(ds){
+  const p=ds.split('-');
+  const d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+  d.setHours(0,0,0,0);return d;
+}
+
 function isBillPaid(p){
   if(!p.paidUntil)return false;
   const now=new Date();now.setHours(0,0,0,0);
-  const paidD=new Date(p.paidUntil+'T00:00:00');paidD.setHours(0,0,0,0);
+  const paidD=parseDateStr(p.paidUntil);
   // Paid if paidUntil matches the current next bill date (or is in future)
   const nextD=nextBillDateRaw(p); // use raw (no override) to get real due date
   return paidD.getTime()===nextD.getTime()||paidD>=now;
@@ -1225,9 +1231,9 @@ function isBillPaid(p){
 function nextBillDateRaw(p){
   const now=new Date();now.setHours(0,0,0,0);
   if(p.freq==='once'){const d=new Date(p.dueDate+'T00:00:00');d.setHours(0,0,0,0);return d;}
-  if(p.freq==='weekly'){const a=new Date(p.dueDate+'T00:00:00');a.setHours(0,0,0,0);let n=new Date(a);while(n<=now)n.setDate(n.getDate()+7);return n;}
+  if(p.freq==='weekly'){const a=parseDateStr(p.dueDate);let n=new Date(a);while(n<=now)n.setDate(n.getDate()+7);return n;}
   if(p.freq==='annual'){const b=new Date(p.dueDate+'T00:00:00');let d=new Date(now.getFullYear(),b.getMonth(),b.getDate());d.setHours(0,0,0,0);if(d<=now)d=new Date(now.getFullYear()+1,b.getMonth(),b.getDate());return d;}
-  const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+  const base=parseDateStr(p.dueDate);
   const dayNum=base.getDate();
   if(base>now)return base;
   let d=new Date(now.getFullYear(),now.getMonth(),Math.min(dayNum,lastDay(now.getFullYear(),now.getMonth())));
@@ -1564,7 +1570,6 @@ function confirmRI(riId){
   S.balance=parseFloat(((S.balance||0)+ri.amount).toFixed(2));
   S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
-  S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();render();
   showToast('💚 '+fmtE(ri.amount)+' logged from '+ri.name);
 }
@@ -1590,12 +1595,12 @@ function markPaid(pid){
   const cat=p.billCategory||'📦 Other';
   // Log as spend transaction
   S.balance=parseFloat(((S.balance||0)-eur).toFixed(2));
-  S.transactions.push({id:Date.now(),type:'spend',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
+  S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
     if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();render();
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
-  S.fixedPool=0;S.fixedPoolCycleKey='';
+  window._calDayBals=null;
   persist();render();
   showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted from balance');
 }
@@ -1718,7 +1723,7 @@ function saveBillEdit(){
     }
     showToast(newEndDate?'✅ Schedule updated · ends '+fmtShort(newEndDate):'✅ Schedule updated permanently');
   }
-  S.fixedPool=0;S.fixedPoolCycleKey='';
+  window._calDayBals=null;
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
   // Invalidate calendar cache so it recalculates with new bill dates
@@ -1959,7 +1964,7 @@ function getEventsOnDate(ds){
     // Check if this bill falls on this date:
     // 1. If override exists: only show on override date, not original
     if(p.nextDateOverride&&p.nextDateOverride.date){
-      const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+      const ovd=parseDateStr(p.nextDateOverride.date);
       const ovdTime=ovd.getTime();
       if(target.getTime()===ovdTime){
         // Show on override date (even if already paid)
@@ -1975,7 +1980,7 @@ function getEventsOnDate(ds){
 
     // No override — show on recurring date (skip if already paid)
     if(isBillPaid(p))return;
-    const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+    const base=parseDateStr(p.dueDate);
     if(occursOnDate(base,target,p.freq))
       events.push({type:'bill',name:p.name,amt:eur,
         icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
@@ -2071,12 +2076,12 @@ function getBalanceOnDate(ds){
       // ── Bills (respects nextDateOverride and paid status) ──
       S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
         const eur=getBillAmount(p);
-        const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+        const base=parseDateStr(p.dueDate);
 
         // If bill has a date override, apply it on the override date instead
         if(p.nextDateOverride&&p.nextDateOverride.date){
           if(!isBillPaid(p)){
-            const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+            const ovd=parseDateStr(p.nextDateOverride.date);
             if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
               const ovDay=ovd.getDate();
               if(ovDay>=startDay&&ovDay<=endDay)
@@ -3110,11 +3115,11 @@ function render(){
   const cycleStart=getCycleStart();
   // cycleSpend = spending transactions only (for pool remaining display)
   const cycleSpend=S.transactions
-    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return t.type==='spend'&&td>=cycleStart;})
+    .filter(t=>{const td=parseDateStr(t.date);return t.type==='spend'&&td>=cycleStart;})
     .reduce((a,t)=>a+t.amt,0);
   // allOutflows = spend + bill_paid (for reconstructing cycle start balance)
   const allOutflows=S.transactions
-    .filter(t=>{const td=new Date(t.date+'T00:00:00');td.setHours(0,0,0,0);return (t.type==='spend'||t.type==='bill_paid')&&td>=cycleStart;})
+    .filter(t=>{const td=parseDateStr(t.date);return (t.type==='spend'||t.type==='bill_paid')&&td>=cycleStart;})
     .reduce((a,t)=>a+t.amt,0);
 
   // ── Pool: (balance - bills before payday) × (1 - buffer%) ──
