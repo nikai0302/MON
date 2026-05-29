@@ -1792,11 +1792,14 @@ function saveSalaryEdit(scope){
   const newAmt=(!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
   const newDay=dateVal?parseDateStr(dateVal).getDate():null;
   if(scope==='all'){
+    // Only store day if user explicitly tapped a new date
+    const _existing=S.salaryGlobalOverride||{};
     S.salaryGlobalOverride={
       amt:newAmt,
-      day:newDay||getSalaryForMonth(parseInt(month.slice(0,4)),parseInt(month.slice(5,7))-1).day
+      day:newDay||_existing.day||null  // null = use default payday
     };
-    showToast('Salary set to day '+(newDay||'same')+' · '+fmtE(newAmt)+' for all months');
+    const _dayLabel=newDay?'day '+newDay:(_existing.day?'day '+_existing.day:'default payday');
+    showToast('Salary: '+_dayLabel+' · '+fmtE(newAmt)+' for all months');
   } else {
     if(!S.salaryOverrides)S.salaryOverrides=[];
     S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
@@ -1990,8 +1993,9 @@ function getSalaryForMonth(y,m){
     const day=mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m);
     return{amt:mo.amt||(S.salary||0),day:Math.min(day,maxDay)};
   }
-  if(S.salaryGlobalOverride&&S.salaryGlobalOverride.day){
-    return{amt:S.salaryGlobalOverride.amt||(S.salary||0),day:Math.min(S.salaryGlobalOverride.day,maxDay)};
+  if(S.salaryGlobalOverride&&(S.salaryGlobalOverride.day||S.salaryGlobalOverride.amt)){
+    const _day=S.salaryGlobalOverride.day?Math.min(S.salaryGlobalOverride.day,maxDay):resDay(S.payday,y,m);
+    return{amt:S.salaryGlobalOverride.amt||(S.salary||0),day:_day};
   }
   return{amt:S.salary||0,day:resDay(S.payday,y,m)};
 }
@@ -2106,8 +2110,17 @@ function getBalanceOnDate(ds){
 
     // Start day in this month (day after today for first month, 1 for others)
     const startDay=isFirstMonth?td2+1:1;
-    // End day in this month (target day for last month, last day otherwise)
     const endDay=isLastMonth?ed:daysInCurMonth;
+
+    // If first month and today has unlogged salary, add it (salary day < startDay)
+    if(isFirstMonth){
+      const _todayDs=ty+'-'+String(tm+1).padStart(2,'0')+'-'+String(td2).padStart(2,'0');
+      const _st=getSalaryForMonth(ty,tm);
+      if(_st.amt>0&&_st.day===td2){
+        const _stLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayDs);
+        if(!_stLogged)bal=parseFloat((bal+_st.amt).toFixed(2));
+      }
+    }
 
     if(startDay<=endDay){
       // ── Salary (respects overrides) ──
