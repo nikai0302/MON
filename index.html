@@ -794,7 +794,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',salaryOverrides:[],salaryGlobalOverride:null};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:''};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1212,32 +1212,6 @@ function nextBillDate(p){
   }
   return d;
 }
-// Returns {day, amt} for salary in given year/month
-// Priority: month-specific override > global override > settings default
-function getSalaryForMonth(y, m){
-  const monthKey=y+'-'+String(m+1).padStart(2,'0');
-  const maxDay=lastDay(y,m); // days in this month
-  // 1. Month-specific override
-  const mo=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
-  if(mo){
-    const day=mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m);
-    return{amt:mo.amt||(S.salary||0), day:Math.min(day,maxDay)};
-  }
-  // 2. Global override — clamp day to month length
-  if(S.salaryGlobalOverride&&S.salaryGlobalOverride.day){
-    const day=Math.min(S.salaryGlobalOverride.day,maxDay);
-    return{amt:S.salaryGlobalOverride.amt||(S.salary||0), day};
-  }
-  // 3. Settings default (resDay already handles 'last' and clamping)
-  return{amt:S.salary||0, day:resDay(S.payday,y,m)};
-}
-
-function parseDateStr(ds){
-  const p=ds.split('-');
-  const d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
-  d.setHours(0,0,0,0);return d;
-}
-
 function isBillPaid(p){
   if(!p.paidUntil)return false;
   const now=new Date();now.setHours(0,0,0,0);
@@ -1623,7 +1597,7 @@ function markPaid(pid){
   if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
-  window._calDayBals=null;window._gboCache=null;
+  window._calDayBals=null;
   persist();render();
   showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted');
 }
@@ -1760,7 +1734,7 @@ function saveBillEdit(){
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
   // Invalidate calendar cache so it recalculates with new bill dates
-  window._calDayBals=null;window._gboCache=null;
+  window._calDayBals=null;
   render();
   // If we're on calendar tab, re-render it
   if(document.getElementById('tab-calendar')&&document.getElementById('tab-calendar').classList.contains('active')){
@@ -1781,81 +1755,20 @@ function closeSalAction(e){
 }
 function salActionChoice(what){
   document.getElementById('sal-action-sheet').classList.remove('open');
-  openSalaryEdit(what,null);
+  // Redirect to Settings — avoids iOS PWA dialog issue
+  ST('settings');
+  setTimeout(()=>{
+    if(what==='amount'||what==='both'){
+      const el=document.getElementById('set-sal');if(el){el.focus();el.select();}
+    } else if(what==='date'){
+      const el=document.getElementById('set-pd');if(el){el.focus();}
+    }
+  },400);
 }
-
-function openSalaryEditFromCal(ds){
-  // ds = 'YYYY-MM-DD' of the salary date tapped in calendar
-  openSalaryEdit('both', ds.slice(0,7));
-}
-
-function openSalaryEdit(what, monthOverride){
-  const pd=getNextPayday();
-  const month=monthOverride||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
-  const pdStr=month+'-'+String(pd.getDate()).padStart(2,'0');
-  const existing=(S.salaryOverrides||[]).find(o=>o.month===month);
-  const curAmt=existing&&existing.amt?existing.amt:(S.salary||0);
-  const curDate=existing&&existing.date?existing.date:pdStr;
-  const sheetEl=document.getElementById('sal-edit-sheet');
-  sheetEl.dataset.month=month;
-  document.getElementById('sal-edit-title').textContent='Edit salary for '+new Date(month+'-01T00:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
-  document.getElementById('sal-edit-amt').value=curAmt.toFixed(2).replace('.',',');
-  document.getElementById('sal-edit-date-hidden').value=curDate;
-  document.getElementById('sal-edit-what').value=what;
-  buildCal('sal-edit-cal','sal-edit-date-hidden','sal-edit-date-display',curDate);
-  document.getElementById('sal-edit-date-row').style.display=(what==='amount')?'none':'';
-  document.getElementById('sal-edit-amt-row').style.display=(what==='date')?'none':'';
-  sheetEl.style.display='flex';
-}
-
-function closeSalEdit(e){
-  if(e&&e.target!==document.getElementById('sal-edit-sheet'))return;
-  document.getElementById('sal-edit-sheet').style.display='none';
-}
-
-function saveSalaryEdit(scope){
-  const what=document.getElementById('sal-edit-what').value;
-  const amtVal=parseCur(document.getElementById('sal-edit-amt').value);
-  const dateVal=document.getElementById('sal-edit-date-hidden').value;
-  const sheetEl=document.getElementById('sal-edit-sheet');
-  const pd=getNextPayday();
-  const month=sheetEl.dataset.month||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
-  delete sheetEl.dataset.month;
-  const newAmt=(!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
-  // If no new date selected, keep existing override or null (use default)
-  let newDay=null;
-  if(dateVal){
-    newDay=parseDateStr(dateVal).getDate();
-  } else if(scope==='all'&&S.salaryGlobalOverride){
-    newDay=S.salaryGlobalOverride.day; // keep existing
-  } else if(scope==='month'){
-    const _ex=(S.salaryOverrides||[]).find(o=>o.month===month);
-    newDay=_ex&&_ex.date?parseDateStr(_ex.date).getDate():null;
-  }
-
-  if(scope==='all'){
-    S.salaryGlobalOverride={amt:newAmt,day:newDay};
-    const _dayStr=newDay?'day '+newDay:'default payday';
-    showToast('Salary set to '+_dayStr+' · '+fmtE(newAmt)+' for all months');
-  } else {
-    if(!S.salaryOverrides)S.salaryOverrides=[];
-    S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
-    const override={month,amt:newAmt};
-    if(dateVal)override.date=dateVal;
-    S.salaryOverrides.push(override);
-    showToast('Salary updated for '+month+(dateVal?' → '+fmtDate(dateVal):'')+' only');
-  }
-  sheetEl.style.display='none';
-  window._calDayBals=null;window._gboCache=null;
-  persist();render();
-  renderCalView();
-}
-
 
 
 // ══════════════ RECURRING INCOME ══════════════
 let riActionId=null;
-
 
 // Next occurrence of a recurring income (same logic as bills)
 function nextRIDate(ri){
@@ -2033,12 +1946,15 @@ function getEventsOnDate(ds){
     });
   });
 
-  // Salary payday — respects global and month overrides
-  {
+  // Salary payday — matches the configured payday day each month
+  const salAmt=S.salary||0;
+  if(salAmt>0){
     const y=target.getFullYear(),m=target.getMonth();
-    const sal=getSalaryForMonth(y,m);
-    if(sal.amt>0&&target.getDate()===sal.day)
-      events.push({type:'salary',name:'Salary',amt:sal.amt,icon:'💰',scheduled:true,positive:true});
+    const pdDay=resDay(S.payday,y,m);
+    if(target.getDate()===pdDay){
+      events.push({type:'salary',name:'Salary',amt:salAmt,icon:'💰',scheduled:true,positive:true});
+      // Vault is manual — no auto-deduction shown in calendar
+    }
   }
 
   // Recurring income
@@ -2083,34 +1999,12 @@ function getEventsOnDate(ds){
 }
 
 function getBalanceOnDate(ds){
-  // Per-render cache — cleared whenever data changes
-  if(!window._gboCache)window._gboCache={};
-  if(window._gboCache[ds]!==undefined)return window._gboCache[ds];
-  const target=parseDateStr(ds);
+  const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
   const todayD=new Date();todayD.setHours(0,0,0,0);
   let bal=parseFloat((S.balance||0).toFixed(2));
   const r2=rate||63.5;
 
-  if(target.getTime()===todayD.getTime()){
-    // Add unlogged salary scheduled for today
-    const _y=target.getFullYear(),_m=target.getMonth();
-    const _salInfo=getSalaryForMonth(_y,_m);
-    const _salLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
-    if(_salInfo.amt>0&&target.getDate()===_salInfo.day&&!_salLogged)
-      bal=parseFloat((bal+_salInfo.amt).toFixed(2));
-    // Add unlogged RI scheduled for today
-    (S.recurringIncome||[]).forEach(ri=>{
-      const _riLogged=S.transactions.some(t=>t.type==='income'&&t.date===ds&&t.desc===ri.name);
-      if(!_riLogged){const _rb=parseDateStr(ri.date);if(occursOnDate(_rb,target,ri.freq))bal=parseFloat((bal+ri.amount).toFixed(2));}
-    });
-    // Deduct bills moved to today via override
-    S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)&&p.nextDateOverride&&p.nextDateOverride.date===ds).forEach(p=>{
-      bal=parseFloat((bal-getBillAmount(p)).toFixed(2));
-    });
-    const _r0=parseFloat(bal.toFixed(2));
-    if(!window._gboCache)window._gboCache={};
-    window._gboCache[ds]=_r0;return _r0;
-  }
+  if(target.getTime()===todayD.getTime()) return bal;
 
   // PAST: undo logged transactions after target date
   if(target<todayD){
@@ -2121,9 +2015,7 @@ function getBalanceOnDate(ds){
         bal=parseFloat((bal+(isIn?-t.amt:t.amt)).toFixed(2));
       }
     });
-    const _r1=parseFloat(bal.toFixed(2));
-    if(!window._gboCache)window._gboCache={};
-    window._gboCache[ds]=_r1;return _r1;
+    return parseFloat(bal.toFixed(2));
   }
 
   // FUTURE: iterate month by month — fast and accurate
@@ -2138,38 +2030,27 @@ function getBalanceOnDate(ds){
     const isFirstMonth=cy===ty&&cm===tm;
     const isLastMonth=cy===ey&&cm===em;
 
+    // Start day in this month (day after today for first month, 1 for others)
     const startDay=isFirstMonth?td2+1:1;
+    // End day in this month (target day for last month, last day otherwise)
     const endDay=isLastMonth?ed:daysInCurMonth;
 
-    // For first month: if today has unlogged salary/RI, add it now
-    // (startDay skips today, but unlogged events on today affect future balances)
-    if(isFirstMonth){
-      const _todayStr=ty+'-'+String(tm+1).padStart(2,'0')+'-'+String(td2).padStart(2,'0');
-      const _sal0=getSalaryForMonth(ty,tm);
-      if(_sal0.amt>0&&_sal0.day===td2){
-        const _logged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayStr);
-        if(!_logged)bal=parseFloat((bal+_sal0.amt).toFixed(2));
-      }
-      (S.recurringIncome||[]).forEach(ri=>{
-        const _base=parseDateStr(ri.date);
-        if(occursOnDate(_base,new Date(ty,tm,td2),ri.freq)){
-          const _logged=S.transactions.some(t=>t.type==='income'&&t.date===_todayStr&&t.desc===ri.name);
-          if(!_logged)bal=parseFloat((bal+ri.amount).toFixed(2));
-        }
-      });
-    }
-
     if(startDay<=endDay){
-      // ── Salary (global/month override aware) ──
-      const _sal=getSalaryForMonth(cy,cm);
-      if(_sal.amt>0&&_sal.day>=startDay&&_sal.day<=endDay)
-        bal=parseFloat((bal+_sal.amt).toFixed(2));
+      // ── Salary ──
+      if(S.salary>0){
+        const pdDay=resDay(S.payday,cy,cm);
+        if(pdDay>=startDay&&pdDay<=endDay){
+          bal=parseFloat((bal+S.salary).toFixed(2));
+          // Savings target is a planning reserve — not auto-deducted (vault is manual)
+        }
+      }
 
       // ── Recurring income ──
       (S.recurringIncome||[]).forEach(ri=>{
         const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
         if(ri.freq==='monthly'){
           const riDay=Math.min(base.getDate(),daysInCurMonth);
+          // Only if base date is on or before this month
           const baseYM=base.getFullYear()*12+base.getMonth();
           const curYM=cy*12+cm;
           if(curYM>=baseYM&&riDay>=startDay&&riDay<=endDay)
@@ -2312,11 +2193,18 @@ function renderCalView(){
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
   const fd=(firstDay+6)%7;
 
-  // ── Pre-compute balance for every day ──
+  // ── Pre-compute balance for every day in the viewed month ──
+  // Single source of truth: getBalanceOnDate() for every date.
+  // Cells and detail panel always match because they use the same function.
   window._calDayBals={};
   const dayBals=window._calDayBals;
-  for(let d=1;d<=daysInMonth;d++){
-    const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+  const monthStart=new Date(calViewYear,calViewMonth,1);
+  const monthEnd=new Date(calViewYear,calViewMonth+1,0); // last day of month, dynamic
+  for(let cur=new Date(monthStart);cur<=monthEnd;cur.setDate(cur.getDate()+1)){
+    const y=cur.getFullYear();
+    const mo=String(cur.getMonth()+1).padStart(2,'0');
+    const d=cur.getDate();
+    const ds=y+'-'+mo+'-'+String(d).padStart(2,'0');
     dayBals[d]=getBalanceOnDate(ds);
   }
 
@@ -2411,7 +2299,7 @@ function calViewShowDetail(ds){
     if((ev.type==='income'||ev.type==='salary')&&ev.riId)
       return`<button class="redit" onclick="openRIAction(${ev.riId})" style="margin-left:6px">edit</button>`;
     if(ev.type==='salary')
-      return`<button class="redit" onclick="openSalaryEditFromCal('${ds}')" style="margin-left:6px">edit</button>`;
+      return`<button class="redit" onclick="ST('settings')" style="margin-left:6px">edit</button>`;
     return '';
   };
 
@@ -3738,30 +3626,6 @@ window.addEventListener('load',()=>{
 </div>
 
 <!-- SALARY CHANGE ACTION SHEET -->
-<div class="sbg" id="sal-edit-sheet" onclick="closeSalEdit(event)" style="display:none">
-  <div class="sht" onclick="event.stopPropagation()">
-    <div class="sh-hdl"></div>
-    <div class="sh-title" id="sal-edit-title">Edit salary</div>
-    <input type="hidden" id="sal-edit-what" value="both"/>
-    <div class="fld" id="sal-edit-amt-row">
-      <label>Amount (euros)</label>
-      <input id="sal-edit-amt" type="text" inputmode="decimal" placeholder="0,00"/>
-    </div>
-    <div id="sal-edit-date-row">
-      <div class="fld"><label>Pay date (this month only)</label>
-        <div id="sal-edit-date-display" style="font-size:13px;color:var(--green-d);font-weight:600;margin-bottom:6px"></div>
-        <input type="hidden" id="sal-edit-date-hidden"/>
-        <div id="sal-edit-cal"></div>
-      </div>
-    </div>
-    <div class="sacts">
-      <button class="bcancel" onclick="closeSalEdit()">Cancel</button>
-      <button class="bsave" style="font-size:12px;padding:10px 12px" onclick="saveSalaryEdit('month')">This month</button>
-      <button class="bsave" onclick="saveSalaryEdit('all')">All months</button>
-    </div>
-  </div>
-</div>
-
 <div class="asheet-bg" id="sal-action-sheet" onclick="closeSalAction(event)">
   <div class="asheet" onclick="event.stopPropagation()">
     <div class="asheet-title">Salary change</div>
