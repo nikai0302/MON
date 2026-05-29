@@ -1755,20 +1755,62 @@ function closeSalAction(e){
 }
 function salActionChoice(what){
   document.getElementById('sal-action-sheet').classList.remove('open');
-  // Redirect to Settings — avoids iOS PWA dialog issue
-  ST('settings');
-  setTimeout(()=>{
-    if(what==='amount'||what==='both'){
-      const el=document.getElementById('set-sal');if(el){el.focus();el.select();}
-    } else if(what==='date'){
-      const el=document.getElementById('set-pd');if(el){el.focus();}
-    }
-  },400);
+  openSalaryEdit(what,null);
+}
+
+function openSalaryEditFromCal(ds){
+  // ds = 'YYYY-MM-DD' of the salary date tapped in calendar
+  openSalaryEdit('both', ds.slice(0,7));
+}
+
+function openSalaryEdit(what, monthOverride){
+  const pd=getNextPayday();
+  const month=monthOverride||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
+  const pdStr=month+'-'+String(pd.getDate()).padStart(2,'0');
+  const existing=(S.salaryOverrides||[]).find(o=>o.month===month);
+  const curAmt=existing&&existing.amt?existing.amt:(S.salary||0);
+  const curDate=existing&&existing.date?existing.date:pdStr;
+  const sheetEl=document.getElementById('sal-edit-sheet');
+  sheetEl.dataset.month=month;
+  document.getElementById('sal-edit-title').textContent='Edit salary for '+new Date(month+'-01T00:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  document.getElementById('sal-edit-amt').value=curAmt.toFixed(2).replace('.',',');
+  document.getElementById('sal-edit-date-hidden').value=curDate;
+  document.getElementById('sal-edit-what').value=what;
+  buildCal('sal-edit-cal','sal-edit-date-hidden','sal-edit-date-display',curDate);
+  document.getElementById('sal-edit-date-row').style.display=(what==='amount')?'none':'';
+  document.getElementById('sal-edit-amt-row').style.display=(what==='date')?'none':'';
+  sheetEl.style.display='flex';
+}
+
+function closeSalEdit(e){
+  if(e&&e.target!==document.getElementById('sal-edit-sheet'))return;
+  document.getElementById('sal-edit-sheet').style.display='none';
+}
+
+function saveSalaryEdit(){
+  const what=document.getElementById('sal-edit-what').value;
+  const amtVal=parseCur(document.getElementById('sal-edit-amt').value);
+  const dateVal=document.getElementById('sal-edit-date-hidden').value;
+  const sheetEl=document.getElementById('sal-edit-sheet');
+  const pd=getNextPayday();
+  const month=sheetEl.dataset.month||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
+  delete sheetEl.dataset.month;
+  if(!S.salaryOverrides)S.salaryOverrides=[];
+  S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
+  const override={month};
+  override.amt=(what!=='date'&&!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
+  if(what!=='amount'&&dateVal)override.date=dateVal;
+  S.salaryOverrides.push(override);
+  sheetEl.style.display='none';
+  window._calDayBals=null;
+  persist();render();
+  showToast('Salary updated for '+month);
 }
 
 
 // ══════════════ RECURRING INCOME ══════════════
 let riActionId=null;
+
 
 // Next occurrence of a recurring income (same logic as bills)
 function nextRIDate(ri){
