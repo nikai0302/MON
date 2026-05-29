@@ -609,6 +609,7 @@ select.stinp{cursor:pointer}
             <option value="28">28th</option><option value="30">30th</option>
           </select>
         </div>
+        <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% of spendable pool held as emergency cushion</div></div><input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" onchange="sv()" onblur="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n">Mark paid button</div><div class="s">Show "mark paid" on bills within this many days of due date</div></div>
           <div style="display:flex;align-items:center;gap:6px">
             <input class="stinp" id="set-markpaiddays" type="number" min="0" max="14" placeholder="3" style="width:55px" onchange="sv()" onblur="sv()"/>
@@ -3012,6 +3013,7 @@ function sv(){
   const _svtEl=document.getElementById('set-svt');const svtVal=_svtEl?parseCur(_svtEl.value):NaN;
   if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
   const _pdEl2=document.getElementById('set-pd');if(_pdEl2&&_pdEl2.value)S.payday=_pdEl2.value;
+  const bufEl=document.getElementById('set-buffer');if(bufEl){const bv=parseInt(bufEl.value);if(!isNaN(bv)&&bv>=0&&bv<=50)S.bufferPct=bv;}
   const mpdEl=document.getElementById('set-markpaiddays');
   if(mpdEl){const mpdVal=parseInt(mpdEl.value);if(!isNaN(mpdVal)&&mpdVal>=0&&mpdVal<=14)S.markPaidDays=mpdVal;}
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
@@ -3291,36 +3293,7 @@ function render(){
       </div>
     </div>
 
-    <!-- MON's suggested daily budget -->
-    <div style="background:${poolExhausted?'linear-gradient(135deg,var(--red-l),#fdd8d8)':'linear-gradient(135deg,var(--purple-l),var(--pink-l))'};border-radius:var(--rs);padding:14px 16px;margin-bottom:12px;border:.5px solid ${poolRemaining<=0?'rgba(224,85,85,.2)':'rgba(155,109,206,.2)'}">
-      <div style="font-size:11px;font-weight:700;color:${poolExhausted?'var(--red-d)':'var(--purple-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">MON suggests · spend max today</div>
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
-        <div style="font-size:32px;font-weight:800;color:${poolExhausted?'var(--red-d)':'var(--purple-d)'};letter-spacing:-.5px">${fmtE(dailyLimit)}</div>
-        <div style="font-size:13px;color:${poolExhausted?'var(--red)':'var(--purple)'};font-weight:600">${poolExhausted?'STOP SPENDING':'per day'}</div>
-      </div>
-      <div style="font-size:12px;color:${poolRemaining<=0?'var(--red-d)':'var(--purple-d)'};opacity:.85;line-height:1.5">
-        ${poolRemaining>0?fmtE(poolRemaining)+' left ÷ '+dl+' days to payday':'No spending allowed — pool exhausted'}
-        ${paceMsg?`<br><strong>${paceMsg}</strong>`:''}
-      </div>
-      ${cycleSpend>0?`<div style="margin-top:8px;font-size:12px;color:${poolRemaining<=0?'var(--red-d)':'var(--purple-d)'};opacity:.7">Spent ${fmtE(cycleSpend)} of ${fmtE(fixedPool)} pool this cycle</div>`:''}
-    </div>
 
-    <!-- Today's bar -->
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div style="font-size:12px;font-weight:700;color:var(--text)">Today: ${fmtE(todaySpend)} spent</div>
-      <div style="font-size:12px;font-weight:700;color:${barColor}">${fmtE(remainingToday)} left today</div>
-    </div>
-    <div class="spend-limit-bar" style="margin-bottom:4px"><div class="spend-limit-fill" style="width:${pct}%;background:${barColor}"></div></div>
-    <div class="spend-limit-label">${pct}% of today's limit</div>
-
-    <!-- Cycle bar -->
-    ${daysSinceCycleStart>0?`<div style="margin-top:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:12px;font-weight:600;color:var(--text2)">Pool used: ${fmtE(cycleSpend)} of ${fmtE(fixedPool)}</div>
-        <div style="font-size:11px;color:var(--text2)">${dl} days left</div>
-      </div>
-      <div class="spend-limit-bar"><div class="spend-limit-fill" style="width:${cyclePct}%;background:${cycleBarColor}"></div></div>
-    </div>`:''}
   </div>`;
   // Daily banner
   const bz=document.getElementById('daily-banner');const ds=now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
@@ -3342,7 +3315,7 @@ function render(){
     amt=fmtE(remainingToday);
     sub='Pool '+fmtE(poolRemaining)+' left · payday in '+dl+' day'+(dl!==1?'s':'');
   }
-  bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-msg">${msg}</div><div class="b-amt">${amt}</div><div class="b-sub">${sub}</div></div>`;
+  bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-sub" style="font-size:15px;font-weight:700;margin-top:4px">${sub}</div></div>`;
   // Overdue
   const oz=document.getElementById('ovd-zone');const over=overdueP();
   oz.innerHTML=over.length?`<div class="ovd"><div class="ovd-title">⚠️ Due today or overdue</div>${over.map(p=>{const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;return`<div class="ovd-row"><span class="ovd-lbl">${p.name}${p.currency==='PHP'?' ('+fmtP(p.amountPhp)+')':''} — ${fmtE(eur)}</span><button class="ovd-btn" onclick="markPaid(${p.id})">Mark paid</button></div>`}).join('')}</div>`:'';
