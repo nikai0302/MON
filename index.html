@@ -3089,7 +3089,20 @@ function render(){
   applyToggles();
   renderGoalsHome();
 
-  const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
+  const now=new Date();const r2=rate||63.5;const vault=S.vault||0;
+  // Home balance = S.balance + unlogged salary if due today (matches calendar projection)
+  let bal=S.balance||0;
+  {
+    const _td=new Date();_td.setHours(0,0,0,0);
+    const _ds=_td.getFullYear()+'-'+String(_td.getMonth()+1).padStart(2,'0')+'-'+String(_td.getDate()).padStart(2,'0');
+    if(typeof getSalaryForMonth==='function'){
+      const _ts=getSalaryForMonth(_td.getFullYear(),_td.getMonth());
+      if(_ts.amt>0&&_td.getDate()===_ts.day){
+        const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_ds);
+        if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
+      }
+    }
+  }
   const{total:billsEur,nextIncome:nextIncomeDate}=billsBefore(); // bills before next income
   const{total:billsEurAll}=billsBeforePayday(); // all bills before payday (for pool)
   const sav=S.savingsTarget||0;
@@ -3186,7 +3199,6 @@ function render(){
       <div class="vault-title">Savings Vault</div>
       <div class="vault-sub">Deposit manually — your money, locked safely</div>
     </div></div>
-    <div class="vault-balance">${fmtE(vault)}</div>
     ${savTarget>0?`<div style="margin-bottom:14px">
       <div style="font-size:11px;font-weight:700;color:var(--gold-d);margin-bottom:5px">🎯 Monthly savings goal: ${fmtE(savTarget)}</div>
       <div style="height:8px;background:rgba(212,160,23,.2);border-radius:4px;overflow:hidden">
