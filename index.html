@@ -794,7 +794,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',salaryOverrides:[]};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',salaryOverrides:[],salaryGlobalOverride:null};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1212,6 +1212,29 @@ function nextBillDate(p){
   }
   return d;
 }
+// Returns {day, amt} for salary in given year/month
+// Priority: month-specific override > global override > settings default
+function getSalaryForMonth(y, m){
+  const monthKey=y+'-'+String(m+1).padStart(2,'0');
+  // 1. Month-specific override
+  const mo=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
+  if(mo){
+    return{
+      amt:mo.amt||(S.salary||0),
+      day:mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m)
+    };
+  }
+  // 2. Global override
+  if(S.salaryGlobalOverride){
+    return{
+      amt:S.salaryGlobalOverride.amt||(S.salary||0),
+      day:S.salaryGlobalOverride.day||resDay(S.payday,y,m)
+    };
+  }
+  // 3. Settings default
+  return{amt:S.salary||0, day:resDay(S.payday,y,m)};
+}
+
 function parseDateStr(ds){
   const p=ds.split('-');
   const d=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
@@ -1802,6 +1825,7 @@ function saveSalaryEdit(){
   const month=sheetEl.dataset.month||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
   delete sheetEl.dataset.month;
   if(!S.salaryOverrides)S.salaryOverrides=[];
+  if(S.salaryGlobalOverride===undefined)S.salaryGlobalOverride=null;
   S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
   const override={month};
   override.amt=(what!=='date'&&!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
@@ -1994,20 +2018,12 @@ function getEventsOnDate(ds){
     });
   });
 
-  // Salary payday — use override if set for this month
+  // Salary payday — respects global and month overrides
   {
     const y=target.getFullYear(),m=target.getMonth();
-    const monthKey=y+'-'+String(m+1).padStart(2,'0');
-    const salOvr=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
-    const salBase=S.salary||0;
-    const actualAmt=salOvr&&salOvr.amt?salOvr.amt:salBase;
-    if(actualAmt>0){
-      const pdDay=resDay(S.payday,y,m);
-      let salDay=pdDay;
-      if(salOvr&&salOvr.date)salDay=parseDateStr(salOvr.date).getDate();
-      if(target.getDate()===salDay)
-        events.push({type:'salary',name:'Salary',amt:actualAmt,icon:'💰',scheduled:true,positive:true});
-    }
+    const sal=getSalaryForMonth(y,m);
+    if(sal.amt>0&&target.getDate()===sal.day)
+      events.push({type:'salary',name:'Salary',amt:sal.amt,icon:'💰',scheduled:true,positive:true});
   }
 
   // Recurring income
@@ -2057,7 +2073,24 @@ function getBalanceOnDate(ds){
   let bal=parseFloat((S.balance||0).toFixed(2));
   const r2=rate||63.5;
 
-  if(target.getTime()===todayD.getTime()) return bal;
+  if(target.getTime()===todayD.getTime()){
+    // Add unlogged salary scheduled for today
+    const _y=target.getFullYear(),_m=target.getMonth();
+    const _salInfo=getSalaryForMonth(_y,_m);
+    const _salLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
+    if(_salInfo.amt>0&&target.getDate()===_salInfo.day&&!_salLogged)
+      bal=parseFloat((bal+_salInfo.amt).toFixed(2));
+    // Add unlogged RI scheduled for today
+    (S.recurringIncome||[]).forEach(ri=>{
+      const _riLogged=S.transactions.some(t=>t.type==='income'&&t.date===ds&&t.desc===ri.name);
+      if(!_riLogged){const _rb=parseDateStr(ri.date);if(occursOnDate(_rb,target,ri.freq))bal=parseFloat((bal+ri.amount).toFixed(2));}
+    });
+    // Deduct bills moved to today via override
+    S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)&&p.nextDateOverride&&p.nextDateOverride.date===ds).forEach(p=>{
+      bal=parseFloat((bal-getBillAmount(p)).toFixed(2));
+    });
+    return parseFloat(bal.toFixed(2));
+  }
 
   // PAST: undo logged transactions after target date
   if(target<todayD){
@@ -2084,24 +2117,15 @@ function getBalanceOnDate(ds){
     const isLastMonth=cy===ey&&cm===em;
 
     // Start day in this month (day after today for first month, 1 for others)
-    const startDay=isFirstMonth?td2+1:1;
+    const startDay=isFirstMonth?td2:1; // include today so events on today affect future dates
     // End day in this month (target day for last month, last day otherwise)
     const endDay=isLastMonth?ed:daysInCurMonth;
 
     if(startDay<=endDay){
-      // ── Salary (respects monthly override for date and amount) ──
-      if(S.salary>0||(S.salaryOverrides||[]).length){
-        const monthKey2=cy+'-'+String(cm+1).padStart(2,'0');
-        const salOvr2=(S.salaryOverrides||[]).find(o=>o.month===monthKey2);
-        const salAmt2=salOvr2&&salOvr2.amt?salOvr2.amt:(S.salary||0);
-        let salDay2=resDay(S.payday,cy,cm);
-        if(salOvr2&&salOvr2.date){
-          salDay2=parseDateStr(salOvr2.date).getDate();
-        }
-        if(salAmt2>0&&salDay2>=startDay&&salDay2<=endDay){
-          bal=parseFloat((bal+salAmt2).toFixed(2));
-        }
-      }
+      // ── Salary (global/month override aware) ──
+      const _sal=getSalaryForMonth(cy,cm);
+      if(_sal.amt>0&&_sal.day>=startDay&&_sal.day<=endDay)
+        bal=parseFloat((bal+_sal.amt).toFixed(2));
 
       // ── Recurring income ──
       (S.recurringIncome||[]).forEach(ri=>{
@@ -3702,7 +3726,8 @@ window.addEventListener('load',()=>{
     </div>
     <div class="sacts">
       <button class="bcancel" onclick="closeSalEdit()">Cancel</button>
-      <button class="bsave" onclick="saveSalaryEdit()">Save</button>
+      <button class="bsave" style="font-size:12px;padding:10px 12px" onclick="saveSalaryEdit('month')">This month</button>
+      <button class="bsave" onclick="saveSalaryEdit('all')">All months</button>
     </div>
   </div>
 </div>
