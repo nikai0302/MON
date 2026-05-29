@@ -596,7 +596,27 @@ select.stinp{cursor:pointer}
       <div class="info-n">💡 Set your balance and payday. Log salary or income on Home to update balance automatically.</div>
       <div class="slbl">My finances</div>
       <div class="stcard">
-        
+        <div class="strow"><div class="stlbl"><div class="n">Current balance</div><div class="s">Money you have right now (€)</div></div><input class="stinp" id="set-bal" type="text" inputmode="decimal" placeholder="e.g. 800" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="0,00" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2);font-size:12px;font-style:italic">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
+        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="0,00" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Payday</div><div class="s">Day you receive your salary each month</div></div>
+          <select class="stinp" id="set-pd" onchange="sv()">
+            <option value="last">Last day of month</option>
+            <option value="1">1st</option><option value="5">5th</option><option value="10">10th</option>
+            <option value="15">15th</option><option value="20">20th</option><option value="25">25th</option>
+            <option value="28">28th</option><option value="30">30th</option>
+          </select>
+        </div>
+        <div class="strow"><div class="stlbl"><div class="n">Mark paid button</div><div class="s">Show "mark paid" on bills within this many days of due date</div></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input class="stinp" id="set-markpaiddays" type="number" min="0" max="14" placeholder="3" style="width:55px" onchange="sv()" onblur="sv()"/>
+            <span style="font-size:13px;color:var(--text2)">days</span>
+          </div>
+        </div>
+      </div>
+
       <div class="slbl">Data & backup</div>
       <div class="stcard">
         <div class="strow" style="cursor:pointer" onclick="exportData()">
@@ -2992,6 +3012,8 @@ function sv(){
   const _svtEl=document.getElementById('set-svt');const svtVal=_svtEl?parseCur(_svtEl.value):NaN;
   if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
   const _pdEl2=document.getElementById('set-pd');if(_pdEl2&&_pdEl2.value)S.payday=_pdEl2.value;
+  const mpdEl=document.getElementById('set-markpaiddays');
+  if(mpdEl){const mpdVal=parseInt(mpdEl.value);if(!isNaN(mpdVal)&&mpdVal>=0&&mpdVal<=14)S.markPaidDays=mpdVal;}
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   // Reset pool so it recalculates with new values
   render(); // render recalculates and persists
