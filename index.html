@@ -1816,7 +1816,7 @@ function closeSalEdit(e){
   document.getElementById('sal-edit-sheet').style.display='none';
 }
 
-function saveSalaryEdit(){
+function saveSalaryEdit(scope){
   const what=document.getElementById('sal-edit-what').value;
   const amtVal=parseCur(document.getElementById('sal-edit-amt').value);
   const dateVal=document.getElementById('sal-edit-date-hidden').value;
@@ -1824,18 +1824,26 @@ function saveSalaryEdit(){
   const pd=getNextPayday();
   const month=sheetEl.dataset.month||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
   delete sheetEl.dataset.month;
-  if(!S.salaryOverrides)S.salaryOverrides=[];
-  if(S.salaryGlobalOverride===undefined)S.salaryGlobalOverride=null;
-  S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
-  const override={month};
-  override.amt=(what!=='date'&&!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
-  if(what!=='amount'&&dateVal)override.date=dateVal;
-  S.salaryOverrides.push(override);
+  const newAmt=(!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
+  const newDay=dateVal?parseDateStr(dateVal).getDate():null;
+
+  if(scope==='all'){
+    S.salaryGlobalOverride={amt:newAmt,day:newDay};
+    showToast('Salary updated for all months');
+  } else {
+    if(!S.salaryOverrides)S.salaryOverrides=[];
+    S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
+    const override={month,amt:newAmt};
+    if(dateVal)override.date=dateVal;
+    S.salaryOverrides.push(override);
+    showToast('Salary updated for '+month+' only');
+  }
   sheetEl.style.display='none';
   window._calDayBals=null;
   persist();render();
-  showToast('Salary updated for '+month);
+  renderCalView();
 }
+
 
 
 // ══════════════ RECURRING INCOME ══════════════
@@ -2117,7 +2125,7 @@ function getBalanceOnDate(ds){
     const isLastMonth=cy===ey&&cm===em;
 
     // Start day in this month (day after today for first month, 1 for others)
-    const startDay=isFirstMonth?td2:1; // include today so events on today affect future dates
+    const startDay=isFirstMonth?td2+1:1;
     // End day in this month (target day for last month, last day otherwise)
     const endDay=isLastMonth?ed:daysInCurMonth;
 
@@ -2275,19 +2283,34 @@ function renderCalView(){
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
   const fd=(firstDay+6)%7;
 
-  // ── Pre-compute balance for every day in the viewed month ──
-  // Single source of truth: getBalanceOnDate() for every date.
-  // Cells and detail panel always match because they use the same function.
+  // ── Pre-compute balance for every day in ONE forward pass (fast) ──
   window._calDayBals={};
   const dayBals=window._calDayBals;
-  const monthStart=new Date(calViewYear,calViewMonth,1);
-  const monthEnd=new Date(calViewYear,calViewMonth+1,0); // last day of month, dynamic
-  for(let cur=new Date(monthStart);cur<=monthEnd;cur.setDate(cur.getDate()+1)){
-    const y=cur.getFullYear();
-    const mo=String(cur.getMonth()+1).padStart(2,'0');
-    const d=cur.getDate();
-    const ds=y+'-'+mo+'-'+String(d).padStart(2,'0');
-    dayBals[d]=getBalanceOnDate(ds);
+  const todayD2=new Date();todayD2.setHours(0,0,0,0);
+  const r2c=rate||63.5;
+
+  // Start: get balance at the first day of the viewed month
+  const firstDs=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-01';
+  let runBal=getBalanceOnDate(firstDs); // one call to establish starting balance
+  dayBals[1]=runBal;
+
+  // Walk day by day through the month, applying events cumulatively
+  for(let d=2;d<=daysInMonth;d++){
+    const prevDs=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d-1).padStart(2,'0');
+    const prevDate=new Date(calViewYear,calViewMonth,d-1);
+    prevDate.setHours(0,0,0,0);
+    // Only apply future events (past days use getBalanceOnDate for accuracy)
+    if(prevDate>=todayD2){
+      const evs=getEventsOnDate(prevDs);
+      evs.filter(e=>!e.logged).forEach(e=>{
+        runBal=parseFloat((runBal+(e.positive?e.amt:-e.amt)).toFixed(2));
+      });
+    } else {
+      // For past days, recompute accurately
+      const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      runBal=getBalanceOnDate(ds);
+    }
+    dayBals[d]=runBal;
   }
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
