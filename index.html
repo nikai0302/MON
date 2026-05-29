@@ -2302,7 +2302,7 @@ function calViewShowDetail(ds){
     if((ev.type==='income'||ev.type==='salary')&&ev.riId)
       return`<button class="redit" onclick="openRIAction(${ev.riId})" style="margin-left:6px">edit</button>`;
     if(ev.type==='salary')
-      return`<button class="redit" onclick="ST('settings')" style="margin-left:6px">edit</button>`;
+      return`<button class="redit" onclick="openSalaryEditFromCal('${ds}')" style="margin-left:6px">edit</button>`;
     return '';
   };
 
