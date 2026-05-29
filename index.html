@@ -1626,7 +1626,7 @@ function markPaid(pid){
   if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
-  window._calDayBals=null;
+  window._calDayBals=null;window._gboCache=null;
   persist();render();
   showToast('✅ '+p.name+' — '+fmtE(eur)+' deducted');
 }
@@ -1763,7 +1763,7 @@ function saveBillEdit(){
   persist();
   document.getElementById('bill-edit-sheet').classList.remove('open');
   // Invalidate calendar cache so it recalculates with new bill dates
-  window._calDayBals=null;
+  window._calDayBals=null;window._gboCache=null;
   render();
   // If we're on calendar tab, re-render it
   if(document.getElementById('tab-calendar')&&document.getElementById('tab-calendar').classList.contains('active')){
@@ -1839,7 +1839,7 @@ function saveSalaryEdit(scope){
     showToast('Salary updated for '+month+' only');
   }
   sheetEl.style.display='none';
-  window._calDayBals=null;
+  window._calDayBals=null;window._gboCache=null;
   persist();render();
   renderCalView();
 }
@@ -2076,7 +2076,10 @@ function getEventsOnDate(ds){
 }
 
 function getBalanceOnDate(ds){
-  const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
+  // Per-render cache — cleared whenever data changes
+  if(!window._gboCache)window._gboCache={};
+  if(window._gboCache[ds]!==undefined)return window._gboCache[ds];
+  const target=parseDateStr(ds);
   const todayD=new Date();todayD.setHours(0,0,0,0);
   let bal=parseFloat((S.balance||0).toFixed(2));
   const r2=rate||63.5;
@@ -2097,7 +2100,9 @@ function getBalanceOnDate(ds){
     S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)&&p.nextDateOverride&&p.nextDateOverride.date===ds).forEach(p=>{
       bal=parseFloat((bal-getBillAmount(p)).toFixed(2));
     });
-    return parseFloat(bal.toFixed(2));
+    const _r0=parseFloat(bal.toFixed(2));
+    if(!window._gboCache)window._gboCache={};
+    window._gboCache[ds]=_r0;return _r0;
   }
 
   // PAST: undo logged transactions after target date
@@ -2109,7 +2114,9 @@ function getBalanceOnDate(ds){
         bal=parseFloat((bal+(isIn?-t.amt:t.amt)).toFixed(2));
       }
     });
-    return parseFloat(bal.toFixed(2));
+    const _r1=parseFloat(bal.toFixed(2));
+    if(!window._gboCache)window._gboCache={};
+    window._gboCache[ds]=_r1;return _r1;
   }
 
   // FUTURE: iterate month by month — fast and accurate
@@ -2283,34 +2290,12 @@ function renderCalView(){
   const DAYS=['Mo','Tu','We','Th','Fr','Sa','Su'];
   const fd=(firstDay+6)%7;
 
-  // ── Pre-compute balance for every day in ONE forward pass (fast) ──
+  // ── Pre-compute balance for every day ──
   window._calDayBals={};
   const dayBals=window._calDayBals;
-  const todayD2=new Date();todayD2.setHours(0,0,0,0);
-  const r2c=rate||63.5;
-
-  // Start: get balance at the first day of the viewed month
-  const firstDs=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-01';
-  let runBal=getBalanceOnDate(firstDs); // one call to establish starting balance
-  dayBals[1]=runBal;
-
-  // Walk day by day through the month, applying events cumulatively
-  for(let d=2;d<=daysInMonth;d++){
-    const prevDs=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d-1).padStart(2,'0');
-    const prevDate=new Date(calViewYear,calViewMonth,d-1);
-    prevDate.setHours(0,0,0,0);
-    // Only apply future events (past days use getBalanceOnDate for accuracy)
-    if(prevDate>=todayD2){
-      const evs=getEventsOnDate(prevDs);
-      evs.filter(e=>!e.logged).forEach(e=>{
-        runBal=parseFloat((runBal+(e.positive?e.amt:-e.amt)).toFixed(2));
-      });
-    } else {
-      // For past days, recompute accurately
-      const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-      runBal=getBalanceOnDate(ds);
-    }
-    dayBals[d]=runBal;
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    dayBals[d]=getBalanceOnDate(ds);
   }
 
   let html='<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:.5px solid var(--border)">';
