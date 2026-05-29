@@ -1216,22 +1216,19 @@ function nextBillDate(p){
 // Priority: month-specific override > global override > settings default
 function getSalaryForMonth(y, m){
   const monthKey=y+'-'+String(m+1).padStart(2,'0');
+  const maxDay=lastDay(y,m); // days in this month
   // 1. Month-specific override
   const mo=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
   if(mo){
-    return{
-      amt:mo.amt||(S.salary||0),
-      day:mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m)
-    };
+    const day=mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m);
+    return{amt:mo.amt||(S.salary||0), day:Math.min(day,maxDay)};
   }
-  // 2. Global override
-  if(S.salaryGlobalOverride){
-    return{
-      amt:S.salaryGlobalOverride.amt||(S.salary||0),
-      day:S.salaryGlobalOverride.day||resDay(S.payday,y,m)
-    };
+  // 2. Global override — clamp day to month length
+  if(S.salaryGlobalOverride&&S.salaryGlobalOverride.day){
+    const day=Math.min(S.salaryGlobalOverride.day,maxDay);
+    return{amt:S.salaryGlobalOverride.amt||(S.salary||0), day};
   }
-  // 3. Settings default
+  // 3. Settings default (resDay already handles 'last' and clamping)
   return{amt:S.salary||0, day:resDay(S.payday,y,m)};
 }
 
@@ -1825,18 +1822,28 @@ function saveSalaryEdit(scope){
   const month=sheetEl.dataset.month||(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
   delete sheetEl.dataset.month;
   const newAmt=(!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
-  const newDay=dateVal?parseDateStr(dateVal).getDate():null;
+  // If no new date selected, keep existing override or null (use default)
+  let newDay=null;
+  if(dateVal){
+    newDay=parseDateStr(dateVal).getDate();
+  } else if(scope==='all'&&S.salaryGlobalOverride){
+    newDay=S.salaryGlobalOverride.day; // keep existing
+  } else if(scope==='month'){
+    const _ex=(S.salaryOverrides||[]).find(o=>o.month===month);
+    newDay=_ex&&_ex.date?parseDateStr(_ex.date).getDate():null;
+  }
 
   if(scope==='all'){
     S.salaryGlobalOverride={amt:newAmt,day:newDay};
-    showToast('Salary updated for all months');
+    const _dayStr=newDay?'day '+newDay:'default payday';
+    showToast('Salary set to '+_dayStr+' · '+fmtE(newAmt)+' for all months');
   } else {
     if(!S.salaryOverrides)S.salaryOverrides=[];
     S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
     const override={month,amt:newAmt};
     if(dateVal)override.date=dateVal;
     S.salaryOverrides.push(override);
-    showToast('Salary updated for '+month+' only');
+    showToast('Salary updated for '+month+(dateVal?' → '+fmtDate(dateVal):'')+' only');
   }
   sheetEl.style.display='none';
   window._calDayBals=null;window._gboCache=null;
