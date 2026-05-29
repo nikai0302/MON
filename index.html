@@ -1994,22 +1994,19 @@ function getEventsOnDate(ds){
     });
   });
 
-  // Salary payday — matches the configured payday day each month
-  const salAmt=S.salary||0;
-  if(salAmt>0){
+  // Salary payday — use override if set for this month
+  {
     const y=target.getFullYear(),m=target.getMonth();
-    const pdDay=resDay(S.payday,y,m);
     const monthKey=y+'-'+String(m+1).padStart(2,'0');
     const salOvr=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
-    const actualAmt=salOvr&&salOvr.amt?salOvr.amt:salAmt;
-    // Use parseDateStr to avoid timezone bug
-    let salDay=pdDay;
-    if(salOvr&&salOvr.date){
-      const ovd=parseDateStr(salOvr.date);
-      salDay=ovd.getDate();
-    }
-    if(target.getDate()===salDay){
-      events.push({type:'salary',name:'Salary',amt:actualAmt,icon:'💰',scheduled:true,positive:true});
+    const salBase=S.salary||0;
+    const actualAmt=salOvr&&salOvr.amt?salOvr.amt:salBase;
+    if(actualAmt>0){
+      const pdDay=resDay(S.payday,y,m);
+      let salDay=pdDay;
+      if(salOvr&&salOvr.date)salDay=parseDateStr(salOvr.date).getDate();
+      if(target.getDate()===salDay)
+        events.push({type:'salary',name:'Salary',amt:actualAmt,icon:'💰',scheduled:true,positive:true});
     }
   }
 
