@@ -794,7 +794,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:''};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',salaryOverrides:[]};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1951,9 +1951,12 @@ function getEventsOnDate(ds){
   if(salAmt>0){
     const y=target.getFullYear(),m=target.getMonth();
     const pdDay=resDay(S.payday,y,m);
-    if(target.getDate()===pdDay){
-      events.push({type:'salary',name:'Salary',amt:salAmt,icon:'💰',scheduled:true,positive:true});
-      // Vault is manual — no auto-deduction shown in calendar
+    const monthKey=y+'-'+String(m+1).padStart(2,'0');
+    const salOvr=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
+    const actualAmt=salOvr&&salOvr.amt?salOvr.amt:salAmt;
+    const salDay=salOvr&&salOvr.date?new Date(salOvr.date+'T00:00:00').getDate():pdDay;
+    if(target.getDate()===salDay){
+      events.push({type:'salary',name:'Salary',amt:actualAmt,icon:'💰',scheduled:true,positive:true});
     }
   }
 
@@ -3626,6 +3629,29 @@ window.addEventListener('load',()=>{
 </div>
 
 <!-- SALARY CHANGE ACTION SHEET -->
+<div class="sbg" id="sal-edit-sheet" onclick="closeSalEdit(event)" style="display:none">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="sal-edit-title">Edit salary</div>
+    <input type="hidden" id="sal-edit-what" value="both"/>
+    <div class="fld" id="sal-edit-amt-row">
+      <label>Amount (euros)</label>
+      <input id="sal-edit-amt" type="text" inputmode="decimal" placeholder="0,00"/>
+    </div>
+    <div id="sal-edit-date-row">
+      <div class="fld"><label>Pay date (this month only)</label>
+        <div id="sal-edit-date-display" style="font-size:13px;color:var(--green-d);font-weight:600;margin-bottom:6px"></div>
+        <input type="hidden" id="sal-edit-date-hidden"/>
+        <div id="sal-edit-cal"></div>
+      </div>
+    </div>
+    <div class="sacts">
+      <button class="bcancel" onclick="closeSalEdit()">Cancel</button>
+      <button class="bsave" onclick="saveSalaryEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="asheet-bg" id="sal-action-sheet" onclick="closeSalAction(event)">
   <div class="asheet" onclick="event.stopPropagation()">
     <div class="asheet-title">Salary change</div>
