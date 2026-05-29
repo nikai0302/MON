@@ -478,10 +478,7 @@ select.stinp{cursor:pointer}
       <div class="tpick">
         <button class="tpill as" id="pill-spend" onclick="stype('spend')">− Spend</button>
         <button class="tpill" id="pill-income" onclick="stype('income')">+ Income</button>
-        <div id="sal-due-banner" style="display:none;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:13px;font-weight:600;color:#2e7d32;border:1px solid #a5d6a7;cursor:pointer" onclick="stype('salary');document.getElementById('q-amt').focus()">
-  💰 Salary due today — tap to log it
-</div>
-<button class="tpill" id="pill-salary" onclick="stype('salary')">💰 Salary</button>
+        <button class="tpill" id="pill-salary" onclick="stype('salary')">💰 Salary</button>
         <button class="tpill" id="pill-vault" onclick="stype('vault')">🏦 Vault</button>
         <button class="tpill" id="pill-nospend" onclick="confirmNoSpend()" style="background:var(--green-l);color:var(--green-d);border-color:var(--green)">✅ No spend</button>
       </div>
@@ -1163,7 +1160,19 @@ function getNextPayday(){
   const now=new Date();now.setHours(0,0,0,0);
   const y=now.getFullYear(),m=now.getMonth();
   let d=new Date(y,m,resDay(S.payday,y,m));
-  if(d<=now){const nm=m+1>11?0:m+1,ny=m+1>11?y+1:y;d=new Date(ny,nm,resDay(S.payday,ny,nm))}
+  if(d<=now){const nm=m+1>11?0:m+1,ny=m+1>11?y+1:y;d=new Date(ny,nm,resDay(S.payday,ny,nm));}
+  // If salary was already logged this cycle (before normal payday), advance to next month
+  const cycleStart=getCycleStart();
+  const salaryLoggedThisCycle=S.transactions.some(t=>
+    (t.type==='salary'||t.type==='income'&&t.desc==='Monthly salary')&&
+    parseDateStr(t.date)>=cycleStart
+  );
+  if(salaryLoggedThisCycle&&d>now){
+    // Already received salary this cycle — next payday is next month
+    const nm2=d.getMonth()+1>11?0:d.getMonth()+1;
+    const ny2=d.getMonth()+1>11?d.getFullYear()+1:d.getFullYear();
+    d=new Date(ny2,nm2,resDay(S.payday,ny2,nm2));
+  }
   return d;
 }
 function daysUntil(date){const now=new Date();now.setHours(0,0,0,0);return Math.ceil((date-now)/86400000)}
@@ -3097,14 +3106,7 @@ function render(){
   const dl=daysUntil(getNextPayday());const pd=getNextPayday();
   const{current:streak,best}=getStreak();
   document.getElementById('hdr-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-  // Salary due today banner
-  const _todayDs2=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-  const _salDue=typeof getSalaryForMonth==='function'&&(()=>{
-    const s=getSalaryForMonth(now.getFullYear(),now.getMonth());
-    return s.amt>0&&now.getDate()===s.day&&!S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayDs2);
-  })();
-  const _salBanner=document.getElementById('sal-due-banner');
-  if(_salBanner)_salBanner.style.display=_salDue?'':'none';
+
   // balance
   const mb=document.getElementById('m-bal');
   if(S.balanceHidden){mb.innerHTML='<span class="met-hidden">••••</span>';mb.className='met-val'}else{mb.textContent=fmtE(bal);mb.className='met-val'+(bal<0?' red':'')}
