@@ -3186,6 +3186,7 @@ function render(){
       <div class="vault-title">Savings Vault</div>
       <div class="vault-sub">Deposit manually — your money, locked safely</div>
     </div></div>
+    <div class="vault-balance">${fmtE(vault)}</div>
     ${savTarget>0?`<div style="margin-bottom:14px">
       <div style="font-size:11px;font-weight:700;color:var(--gold-d);margin-bottom:5px">🎯 Monthly savings goal: ${fmtE(savTarget)}</div>
       <div style="height:8px;background:rgba(212,160,23,.2);border-radius:4px;overflow:hidden">
