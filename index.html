@@ -478,7 +478,10 @@ select.stinp{cursor:pointer}
       <div class="tpick">
         <button class="tpill as" id="pill-spend" onclick="stype('spend')">− Spend</button>
         <button class="tpill" id="pill-income" onclick="stype('income')">+ Income</button>
-        <button class="tpill" id="pill-salary" onclick="stype('salary')">💰 Salary</button>
+        <div id="sal-due-banner" style="display:none;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:13px;font-weight:600;color:#2e7d32;border:1px solid #a5d6a7;cursor:pointer" onclick="stype('salary');document.getElementById('q-amt').focus()">
+  💰 Salary due today — tap to log it
+</div>
+<button class="tpill" id="pill-salary" onclick="stype('salary')">💰 Salary</button>
         <button class="tpill" id="pill-vault" onclick="stype('vault')">🏦 Vault</button>
         <button class="tpill" id="pill-nospend" onclick="confirmNoSpend()" style="background:var(--green-l);color:var(--green-d);border-color:var(--green)">✅ No spend</button>
       </div>
@@ -2075,20 +2078,7 @@ function getBalanceOnDate(ds){
   const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()){
-    // Add unlogged salary/RI scheduled for today to projected balance
-    const _ts=getSalaryForMonth(target.getFullYear(),target.getMonth());
-    if(_ts.amt>0&&target.getDate()===_ts.day){
-      const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
-      if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
-    }
-    (S.recurringIncome||[]).forEach(ri=>{
-      const _rb=parseDateStr(ri.date);
-      if(occursOnDate(_rb,target,ri.freq)){
-        const _rl=S.transactions.some(t=>t.type==='income'&&t.date===ds&&t.desc===ri.name);
-        if(!_rl)bal=parseFloat((bal+ri.amount).toFixed(2));
-      }
-    });
-    return bal;
+    return bal; // Today = S.balance exactly — log salary/income to update
   }
 
   // PAST: undo logged transactions after target date
@@ -3089,20 +3079,7 @@ function render(){
   applyToggles();
   renderGoalsHome();
 
-  const now=new Date();const r2=rate||63.5;const vault=S.vault||0;
-  // Home balance = S.balance + unlogged salary if due today (matches calendar projection)
-  let bal=S.balance||0;
-  {
-    const _td=new Date();_td.setHours(0,0,0,0);
-    const _ds=_td.getFullYear()+'-'+String(_td.getMonth()+1).padStart(2,'0')+'-'+String(_td.getDate()).padStart(2,'0');
-    if(typeof getSalaryForMonth==='function'){
-      const _ts=getSalaryForMonth(_td.getFullYear(),_td.getMonth());
-      if(_ts.amt>0&&_td.getDate()===_ts.day){
-        const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_ds);
-        if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
-      }
-    }
-  }
+  const now=new Date();const r2=rate||63.5;const bal=S.balance||0;const vault=S.vault||0;
   const{total:billsEur,nextIncome:nextIncomeDate}=billsBefore(); // bills before next income
   const{total:billsEurAll}=billsBeforePayday(); // all bills before payday (for pool)
   const sav=S.savingsTarget||0;
@@ -3120,6 +3097,14 @@ function render(){
   const dl=daysUntil(getNextPayday());const pd=getNextPayday();
   const{current:streak,best}=getStreak();
   document.getElementById('hdr-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  // Salary due today banner
+  const _todayDs2=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  const _salDue=typeof getSalaryForMonth==='function'&&(()=>{
+    const s=getSalaryForMonth(now.getFullYear(),now.getMonth());
+    return s.amt>0&&now.getDate()===s.day&&!S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayDs2);
+  })();
+  const _salBanner=document.getElementById('sal-due-banner');
+  if(_salBanner)_salBanner.style.display=_salDue?'':'none';
   // balance
   const mb=document.getElementById('m-bal');
   if(S.balanceHidden){mb.innerHTML='<span class="met-hidden">••••</span>';mb.className='met-val'}else{mb.textContent=fmtE(bal);mb.className='met-val'+(bal<0?' red':'')}
