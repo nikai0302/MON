@@ -794,7 +794,7 @@ function detectNameMeta(name){
 }
 const GICONS=['🏖️','🚗','🏠','💊','📱','✈️','🎓','💍','🐾','🌟'];
 const GCOLS=['purple','pink','blue','green','gold','purple','pink','blue','green','gold'];
-const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:''};
+const DEF={balance:0,vault:0,salary:0,savingsTarget:0,payday:"last",payments:[],recurringIncome:[],transactions:[],goals:[],balanceHidden:false,streakData:{},sectionToggles:{nw:true,vault:true,streak:true,"goals-home":true},bufferPct:20,monthlyBudget:0,lastBudgetRollover:"",nwToggles:{nw:true,bal:true,vault:true,goals:true},fixedPool:0,fixedPoolCycleKey:'',salaryOverrides:[],salaryGlobalOverride:null};
 let S={...DEF};
 try{const r=localStorage.getItem('mon_v5');if(r)S={...DEF,...JSON.parse(r)}}catch(e){}
 let rate=null,ecbRate=null,rateTime=null,ltype='spend';
@@ -1755,15 +1755,62 @@ function closeSalAction(e){
 }
 function salActionChoice(what){
   document.getElementById('sal-action-sheet').classList.remove('open');
-  // Redirect to Settings — avoids iOS PWA dialog issue
-  ST('settings');
-  setTimeout(()=>{
-    if(what==='amount'||what==='both'){
-      const el=document.getElementById('set-sal');if(el){el.focus();el.select();}
-    } else if(what==='date'){
-      const el=document.getElementById('set-pd');if(el){el.focus();}
-    }
-  },400);
+  openSalaryEdit(null);
+}
+
+function openSalaryEdit(ds){
+  // ds: calendar date context (YYYY-MM-DD), or null if from Home
+  const pd=getNextPayday();
+  const month=ds?ds.slice(0,7):(pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0'));
+  const existing=(S.salaryOverrides||[]).find(o=>o.month===month);
+  const curAmt=existing&&existing.amt?existing.amt:(S.salary||0);
+  // Show current salary date as reference
+  const _salInfo=getSalaryForMonth(parseInt(month.slice(0,4)),parseInt(month.slice(5,7))-1);
+  const curDateStr=month+'-'+String(_salInfo.day).padStart(2,'0');
+  const sheetEl=document.getElementById('sal-edit-sheet');
+  sheetEl.dataset.month=month;
+  document.getElementById('sal-edit-title').textContent='Edit salary — '+new Date(month+'-01T00:00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  document.getElementById('sal-edit-amt').value=curAmt.toFixed(2).replace('.',',');
+  document.getElementById('sal-edit-date-hidden').value='';
+  document.getElementById('sal-edit-date-display').textContent='Current payday: '+fmtDate(curDateStr)+' — tap to change';
+  document.getElementById('sal-edit-date-display').style.color='var(--text2)';
+  buildCal('sal-edit-cal','sal-edit-date-hidden','sal-edit-date-display',curDateStr);
+  sheetEl.style.display='flex';
+}
+
+function closeSalEdit(e){
+  if(e&&e.target!==document.getElementById('sal-edit-sheet'))return;
+  document.getElementById('sal-edit-sheet').style.display='none';
+}
+
+function saveSalaryEdit(scope){
+  const amtVal=parseCur(document.getElementById('sal-edit-amt').value);
+  const dateVal=document.getElementById('sal-edit-date-hidden').value;
+  const sheetEl=document.getElementById('sal-edit-sheet');
+  const month=sheetEl.dataset.month;
+  delete sheetEl.dataset.month;
+  const newAmt=(!isNaN(amtVal)&&amtVal>0)?amtVal:(S.salary||0);
+  const newDay=dateVal?parseDateStr(dateVal).getDate():null;
+  if(scope==='all'){
+    S.salaryGlobalOverride={
+      amt:newAmt,
+      day:newDay||getSalaryForMonth(parseInt(month.slice(0,4)),parseInt(month.slice(5,7))-1).day
+    };
+    showToast('Salary set to day '+(newDay||'same')+' · '+fmtE(newAmt)+' for all months');
+  } else {
+    if(!S.salaryOverrides)S.salaryOverrides=[];
+    S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
+    const override={month,amt:newAmt};
+    if(dateVal)override.date=dateVal;
+    S.salaryOverrides.push(override);
+    showToast('Salary updated for '+month+(dateVal?' → '+fmtDate(dateVal):''));
+  }
+  sheetEl.style.display='none';
+  window._calDayBals=null;
+  if(window._gboCache)window._gboCache=null;
+  persist();
+  render();
+  renderCalView();
 }
 
 
@@ -1927,6 +1974,28 @@ function occursOnDate(base, target, freq){
   return false;
 }
 
+// Parse YYYY-MM-DD as local midnight (avoids iOS timezone bug)
+function parseDateStr(ds){
+  const p=ds.split('-');
+  return new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+}
+
+// Get salary day+amount for a given month, respecting overrides
+// Priority: month-specific > global override > settings default
+function getSalaryForMonth(y,m){
+  const monthKey=y+'-'+String(m+1).padStart(2,'0');
+  const maxDay=lastDay(y,m);
+  const mo=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
+  if(mo){
+    const day=mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m);
+    return{amt:mo.amt||(S.salary||0),day:Math.min(day,maxDay)};
+  }
+  if(S.salaryGlobalOverride&&S.salaryGlobalOverride.day){
+    return{amt:S.salaryGlobalOverride.amt||(S.salary||0),day:Math.min(S.salaryGlobalOverride.day,maxDay)};
+  }
+  return{amt:S.salary||0,day:resDay(S.payday,y,m)};
+}
+
 function getEventsOnDate(ds){
   const r2=rate||63.5;
   const target=new Date(ds+'T00:00:00');target.setHours(0,0,0,0);
@@ -1946,15 +2015,12 @@ function getEventsOnDate(ds){
     });
   });
 
-  // Salary payday — matches the configured payday day each month
-  const salAmt=S.salary||0;
-  if(salAmt>0){
+  // Salary — respects month/global overrides
+  {
     const y=target.getFullYear(),m=target.getMonth();
-    const pdDay=resDay(S.payday,y,m);
-    if(target.getDate()===pdDay){
-      events.push({type:'salary',name:'Salary',amt:salAmt,icon:'💰',scheduled:true,positive:true});
-      // Vault is manual — no auto-deduction shown in calendar
-    }
+    const sal=getSalaryForMonth(y,m);
+    if(sal.amt>0&&target.getDate()===sal.day)
+      events.push({type:'salary',name:'Salary',amt:sal.amt,icon:'💰',scheduled:true,positive:true});
   }
 
   // Recurring income
@@ -2004,7 +2070,15 @@ function getBalanceOnDate(ds){
   let bal=parseFloat((S.balance||0).toFixed(2));
   const r2=rate||63.5;
 
-  if(target.getTime()===todayD.getTime()) return bal;
+  if(target.getTime()===todayD.getTime()){
+    // Add today's unlogged salary to projected balance
+    const _ts=getSalaryForMonth(target.getFullYear(),target.getMonth());
+    if(_ts.amt>0&&target.getDate()===_ts.day){
+      const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
+      if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
+    }
+    return bal;
+  }
 
   // PAST: undo logged transactions after target date
   if(target<todayD){
@@ -2036,14 +2110,10 @@ function getBalanceOnDate(ds){
     const endDay=isLastMonth?ed:daysInCurMonth;
 
     if(startDay<=endDay){
-      // ── Salary ──
-      if(S.salary>0){
-        const pdDay=resDay(S.payday,cy,cm);
-        if(pdDay>=startDay&&pdDay<=endDay){
-          bal=parseFloat((bal+S.salary).toFixed(2));
-          // Savings target is a planning reserve — not auto-deducted (vault is manual)
-        }
-      }
+      // ── Salary (respects overrides) ──
+      const _salInfo=getSalaryForMonth(cy,cm);
+      if(_salInfo.amt>0&&_salInfo.day>=startDay&&_salInfo.day<=endDay)
+        bal=parseFloat((bal+_salInfo.amt).toFixed(2));
 
       // ── Recurring income ──
       (S.recurringIncome||[]).forEach(ri=>{
@@ -2299,7 +2369,7 @@ function calViewShowDetail(ds){
     if((ev.type==='income'||ev.type==='salary')&&ev.riId)
       return`<button class="redit" onclick="openRIAction(${ev.riId})" style="margin-left:6px">edit</button>`;
     if(ev.type==='salary')
-      return`<button class="redit" onclick="ST('settings')" style="margin-left:6px">edit</button>`;
+      return`<button class="redit" onclick="openSalaryEdit('${ds}')" style="margin-left:6px">edit</button>`;
     return '';
   };
 
@@ -3626,6 +3696,25 @@ window.addEventListener('load',()=>{
 </div>
 
 <!-- SALARY CHANGE ACTION SHEET -->
+<div class="sbg" id="sal-edit-sheet" onclick="closeSalEdit(event)" style="display:none">
+  <div class="sht" onclick="event.stopPropagation()">
+    <div class="sh-hdl"></div>
+    <div class="sh-title" id="sal-edit-title">Edit salary</div>
+    <div class="fld"><label>Amount (€)</label><input id="sal-edit-amt" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off"/></div>
+    <div class="fld"><label>Pay date (tap to change)</label>
+      <div id="sal-edit-date-display" style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)"></div>
+      <input type="hidden" id="sal-edit-date-hidden"/>
+      <div id="sal-edit-cal"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;text-align:center">Save for this month only, or all future months?</div>
+    <div class="sacts">
+      <button class="bcancel" onclick="closeSalEdit()">Cancel</button>
+      <button class="bsave" style="font-size:12px" onclick="saveSalaryEdit('month')">This month</button>
+      <button class="bsave" onclick="saveSalaryEdit('all')">All months</button>
+    </div>
+  </div>
+</div>
+
 <div class="asheet-bg" id="sal-action-sheet" onclick="closeSalAction(event)">
   <div class="asheet" onclick="event.stopPropagation()">
     <div class="asheet-title">Salary change</div>
