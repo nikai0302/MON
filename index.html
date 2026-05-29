@@ -1996,7 +1996,12 @@ function getEventsOnDate(ds){
     const monthKey=y+'-'+String(m+1).padStart(2,'0');
     const salOvr=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
     const actualAmt=salOvr&&salOvr.amt?salOvr.amt:salAmt;
-    const salDay=salOvr&&salOvr.date?new Date(salOvr.date+'T00:00:00').getDate():pdDay;
+    // Use parseDateStr to avoid timezone bug
+    let salDay=pdDay;
+    if(salOvr&&salOvr.date){
+      const ovd=parseDateStr(salOvr.date);
+      salDay=ovd.getDate();
+    }
     if(target.getDate()===salDay){
       events.push({type:'salary',name:'Salary',amt:actualAmt,icon:'💰',scheduled:true,positive:true});
     }
@@ -2081,12 +2086,17 @@ function getBalanceOnDate(ds){
     const endDay=isLastMonth?ed:daysInCurMonth;
 
     if(startDay<=endDay){
-      // ── Salary ──
-      if(S.salary>0){
-        const pdDay=resDay(S.payday,cy,cm);
-        if(pdDay>=startDay&&pdDay<=endDay){
-          bal=parseFloat((bal+S.salary).toFixed(2));
-          // Savings target is a planning reserve — not auto-deducted (vault is manual)
+      // ── Salary (respects monthly override for date and amount) ──
+      if(S.salary>0||(S.salaryOverrides||[]).length){
+        const monthKey2=cy+'-'+String(cm+1).padStart(2,'0');
+        const salOvr2=(S.salaryOverrides||[]).find(o=>o.month===monthKey2);
+        const salAmt2=salOvr2&&salOvr2.amt?salOvr2.amt:(S.salary||0);
+        let salDay2=resDay(S.payday,cy,cm);
+        if(salOvr2&&salOvr2.date){
+          salDay2=parseDateStr(salOvr2.date).getDate();
+        }
+        if(salAmt2>0&&salDay2>=startDay&&salDay2<=endDay){
+          bal=parseFloat((bal+salAmt2).toFixed(2));
         }
       }
 
