@@ -2075,7 +2075,19 @@ function getBalanceOnDate(ds){
   const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()){
-    // Return exact current balance — matches Settings. Future walk adds unlogged salary.
+    // Add unlogged salary/RI scheduled for today to projected balance
+    const _ts=getSalaryForMonth(target.getFullYear(),target.getMonth());
+    if(_ts.amt>0&&target.getDate()===_ts.day){
+      const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
+      if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
+    }
+    (S.recurringIncome||[]).forEach(ri=>{
+      const _rb=parseDateStr(ri.date);
+      if(occursOnDate(_rb,target,ri.freq)){
+        const _rl=S.transactions.some(t=>t.type==='income'&&t.date===ds&&t.desc===ri.name);
+        if(!_rl)bal=parseFloat((bal+ri.amount).toFixed(2));
+      }
+    });
     return bal;
   }
 
