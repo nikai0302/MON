@@ -466,7 +466,7 @@ select.stinp{cursor:pointer}
 
 
       <!-- Streak -->
-      <div id="streak-zone"></div>
+      
       <!-- Metrics -->
       <span id="m-bal" style="display:none"></span>
       <span id="m-pd" style="display:none"></span>
@@ -596,35 +596,7 @@ select.stinp{cursor:pointer}
       <div class="info-n">💡 Set your balance and payday. Log salary or income on Home to update balance automatically.</div>
       <div class="slbl">My finances</div>
       <div class="stcard">
-        <div class="strow"><div class="stlbl"><div class="n">Current balance</div><div class="s">Money you have right now (€)</div></div><input class="stinp" id="set-bal" type="text" inputmode="decimal" placeholder="e.g. 800" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
-
-        <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% held back from spendable pool as cushion. E.g. 20% on €100 pool = €80 to spend, €20 reserved.</div></div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
-            <span style="font-size:14px;font-weight:700;color:var(--purple)">%</span>
-          </div>
-        </div>
-        <div class="strow"><div class="stlbl"><div class="n">Pay day</div><div class="s">Day salary arrives</div></div>
-          <select class="stinp" id="set-pd" onchange="sv()">
-            <option value="last">Last day</option>
-            <option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th</option><option value="5">5th</option><option value="6">6th</option><option value="7">7th</option><option value="8">8th</option><option value="9">9th</option><option value="10">10th</option><option value="11">11th</option><option value="12">12th</option><option value="13">13th</option><option value="14">14th</option><option value="15">15th</option><option value="16">16th</option><option value="17">17th</option><option value="18">18th</option><option value="19">19th</option><option value="20">20th</option><option value="21">21st</option><option value="22">22nd</option><option value="23">23rd</option><option value="24">24th</option><option value="25">25th</option><option value="26">26th</option><option value="27">27th</option><option value="28">28th</option><option value="29">29th</option><option value="30">30th</option><option value="31">31st</option>
-          </select>
-        </div>
-      </div>
-      <div class="slbl">Security</div>
-      <button class="lock-now" onclick="lockApp()">🔒 Lock app now</button>
-      <button class="chpin" onclick="startChPin()">🔑 Change PIN</button>
-      <div class="slbl">TapTap Send · EUR → PHP</div>
-      <div class="stcard" id="rate-s-card">
-        <div class="strow"><div class="stlbl"><div class="n">Live estimated rate</div><div class="s">Market − ~0.7% TapTap margin</div></div><div style="font-size:16px;font-weight:700;color:var(--php-d)" id="s-rate">…</div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Source rate</div></div><div style="font-size:13px;color:var(--text2)" id="s-ecb">—</div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Last refreshed</div></div><div style="font-size:13px;color:var(--text2)" id="s-rtime">—</div></div>
-        <div class="strow" style="cursor:pointer" onclick="refreshRateBtn()"><div class="stlbl"><div class="n" style="color:var(--purple-d)">Refresh rate now</div></div><div id="refresh-icon" style="color:var(--purple-d);font-size:20px;font-weight:700">↻</div></div>
-      </div>
+        
       <div class="slbl">Data & backup</div>
       <div class="stcard">
         <div class="strow" style="cursor:pointer" onclick="exportData()">
@@ -2769,7 +2741,7 @@ function togSection(key){
 }
 function applyToggles(){
   if(!S.sectionToggles)return;
-  const map={nw:'nw-zone',vault:'vault-zone',streak:'streak-zone','goals-home':'goals-home-zone'};
+  const map={nw:'nw-zone',vault:'vault-zone','goals-home':'goals-home-zone'};
   Object.entries(map).forEach(([key,zoneId])=>{
     const zone=document.getElementById(zoneId);
     const chip=document.getElementById('tog-'+key);
@@ -3015,13 +2987,11 @@ function sv(){
   if(!isNaN(balVal)&&balVal>=0)S.balance=balVal;
   const vaultVal=parseCur(document.getElementById('set-vault').value);
   if(!isNaN(vaultVal)&&vaultVal>=0)S.vault=vaultVal;
-  const salVal=parseCur(document.getElementById('set-sal').value);
+  const _salEl=document.getElementById('set-sal');const salVal=_salEl?parseCur(_salEl.value):NaN;
   if(salVal>0)S.salary=salVal;
-  const svtVal=parseCur(document.getElementById('set-svt').value);
+  const _svtEl=document.getElementById('set-svt');const svtVal=_svtEl?parseCur(_svtEl.value):NaN;
   if(!isNaN(svtVal))S.savingsTarget=svtVal||0;
-  S.payday=document.getElementById('set-pd').value;
-  const bufVal=parseInt(document.getElementById('set-buffer').value);
-  if(!isNaN(bufVal)&&bufVal>=0&&bufVal<=50)S.bufferPct=bufVal;
+  const _pdEl2=document.getElementById('set-pd');if(_pdEl2&&_pdEl2.value)S.payday=_pdEl2.value;
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
   // Reset pool so it recalculates with new values
   render(); // render recalculates and persists
@@ -3061,10 +3031,7 @@ function importData(event){
         const el=document.getElementById('set-'+id);
         if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',');
       });
-      document.getElementById('set-pd').value=S.payday||'last';
-  // Restore buffer field value (safe — input is standalone, not in a form)
-  const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
-  // monthlyBudget field removed from settings UI
+      const _pd=document.getElementById('set-pd');if(_pd)_pd.value=S.payday||'last';
       render();
       showToast('✅ Backup restored successfully!',3000);
     }catch(err){
@@ -3076,7 +3043,7 @@ function importData(event){
   event.target.value='';
 }
 
-function confReset(){if(confirm('Reset ALL data?')){S={...DEF};persist();['set-bal','set-vault','set-sal','set-svt'].forEach(id=>{document.getElementById(id).value=''});document.getElementById('set-pd').value='last';render()}}
+function confReset(){if(confirm('Reset ALL data?')){S={...DEF};persist();['set-bal','set-vault','set-sal','set-svt'].forEach(id=>{const _e=document.getElementById(id);if(_e)_e.value=''});const _rpd=document.getElementById('set-pd');if(_rpd)_rpd.value='last';render()}}
 
 // ══════════════ MAIN RENDER ══════════════
 function getCycleStart(){
@@ -3206,7 +3173,7 @@ function render(){
   const days7=[];const today=new Date();
   for(let i=6;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');days7.push(S.streakData?.[ds]===true)}
   const streakMsg=streak===0?'Start your streak — stay under your daily spending limit today!':streak<7?`${streak} day${streak!==1?'s':''} in a row! Keep it under your daily limit today.`:streak<30?`🔥 ${streak} days strong! You're building real discipline.`:`🌟 ${streak} days! You're a savings machine!`;
-  document.getElementById('streak-zone').innerHTML=`<div class="streak-card"><div class="streak-row"><div class="streak-box"><div class="streak-fire">🔥</div><div class="streak-num">${streak}</div><div class="streak-lbl">Day streak</div></div><div class="streak-box"><div class="streak-fire">🏆</div><div class="streak-num">${best}</div><div class="streak-lbl">Best streak</div></div></div><div class="streak-bar">${days7.map(h=>`<div class="streak-day${h?' hit':''}"></div>`).join('')}</div><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:2px;margin-bottom:8px"><span>7 days ago</span><span>Today</span></div><div class="streak-msg">${streakMsg}</div></div>`;
+  // streak removed
   // ── Smart daily budget calculation ──
   // Step 1: What have I already spent this cycle?
   const cycleStart=getCycleStart();
@@ -3290,11 +3257,7 @@ function render(){
         ${billsEurAll>billsEur?`<div style="font-size:10px;color:var(--red);margin-top:2px">Total till payday: ${fmtE(billsEurAll)}</div>`:''}
       </div>
 
-      <div style="background:${overSpend>0?'var(--red-l)':'var(--warn-l)'};border-radius:var(--rx);padding:9px 11px">
-        <div style="font-size:10px;font-weight:700;color:${overSpend>0?'var(--red-d)':'var(--warn-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">🛡 Buffer (${Math.round(bufferPct*100)}%)</div>
-        <div style="font-size:16px;font-weight:800;color:${overSpend>0?'var(--red-d)':'var(--warn-d)'}">${fmtE(bufferRemaining)}</div>
-        ${overSpend>0?`<div style="font-size:10px;color:var(--red-d);margin-top:2px">⚠️ ${fmtE(overSpend)} spent from buffer</div>`:''}
-      </div>
+
       <div style="background:${poolExhausted?'var(--red-l)':poolRemaining<dailyLimit?'var(--warn-l)':'var(--green-l)'};border-radius:var(--rx);padding:9px 11px">
         <div style="font-size:10px;font-weight:700;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'};text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${poolExhausted?'🚫 Pool exhausted':'✅ Pool remaining'}</div>
         <div style="font-size:16px;font-weight:800;color:${poolExhausted?'var(--red-d)':poolRemaining<dailyLimit?'var(--warn-d)':'var(--green-d)'}">${fmtE(poolRemaining)}</div>
@@ -3332,7 +3295,7 @@ function render(){
     ${daysSinceCycleStart>0?`<div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div style="font-size:12px;font-weight:600;color:var(--text2)">Pool used: ${fmtE(cycleSpend)} of ${fmtE(fixedPool)}</div>
-        <div style="font-size:11px;color:var(--text2)">day ${daysSinceCycleStart} of ${totalCycleDays}</div>
+        <div style="font-size:11px;color:var(--text2)">${dl} days left</div>
       </div>
       <div class="spend-limit-bar"><div class="spend-limit-fill" style="width:${cyclePct}%;background:${cycleBarColor}"></div></div>
     </div>`:''}
@@ -3598,10 +3561,7 @@ window.addEventListener('load',()=>{
   if(!localStorage.getItem('ft_pin'))document.getElementById('lhint').textContent='Default PIN is 1234 — change in Settings';
   const fields={bal:'balance',vault:'vault',sal:'salary',svt:'savingsTarget'};
   Object.entries(fields).forEach(([id,key])=>{const el=document.getElementById('set-'+id);if(el&&S[key])el.value=S[key].toFixed(2).replace('.',',')});
-  document.getElementById('set-pd').value=S.payday||'last';
-  // Restore buffer field value (safe — input is standalone, not in a form)
-  const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
-  // monthlyBudget field removed from settings UI
+  const _pdEl=document.getElementById('set-pd');if(_pdEl)_pdEl.value=S.payday||'last';
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
   // Restore toggle states
