@@ -2131,10 +2131,26 @@ function getBalanceOnDate(ds){
     const isFirstMonth=cy===ty&&cm===tm;
     const isLastMonth=cy===ey&&cm===em;
 
-    // Start day in this month (day after today for first month, 1 for others)
     const startDay=isFirstMonth?td2+1:1;
-    // End day in this month (target day for last month, last day otherwise)
     const endDay=isLastMonth?ed:daysInCurMonth;
+
+    // For first month: if today has unlogged salary/RI, add it now
+    // (startDay skips today, but unlogged events on today affect future balances)
+    if(isFirstMonth){
+      const _todayStr=ty+'-'+String(tm+1).padStart(2,'0')+'-'+String(td2).padStart(2,'0');
+      const _sal0=getSalaryForMonth(ty,tm);
+      if(_sal0.amt>0&&_sal0.day===td2){
+        const _logged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayStr);
+        if(!_logged)bal=parseFloat((bal+_sal0.amt).toFixed(2));
+      }
+      (S.recurringIncome||[]).forEach(ri=>{
+        const _base=parseDateStr(ri.date);
+        if(occursOnDate(_base,new Date(ty,tm,td2),ri.freq)){
+          const _logged=S.transactions.some(t=>t.type==='income'&&t.date===_todayStr&&t.desc===ri.name);
+          if(!_logged)bal=parseFloat((bal+ri.amount).toFixed(2));
+        }
+      });
+    }
 
     if(startDay<=endDay){
       // ── Salary (global/month override aware) ──
@@ -2147,7 +2163,6 @@ function getBalanceOnDate(ds){
         const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
         if(ri.freq==='monthly'){
           const riDay=Math.min(base.getDate(),daysInCurMonth);
-          // Only if base date is on or before this month
           const baseYM=base.getFullYear()*12+base.getMonth();
           const curYM=cy*12+cm;
           if(curYM>=baseYM&&riDay>=startDay&&riDay<=endDay)
