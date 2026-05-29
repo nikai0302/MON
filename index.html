@@ -596,15 +596,15 @@ select.stinp{cursor:pointer}
       <div class="info-n">💡 Set your balance and payday. Log salary or income on Home to update balance automatically.</div>
       <div class="slbl">My finances</div>
       <div class="stcard">
-        <div class="strow"><div class="stlbl"><div class="n">Current balance</div><div class="s">Money you have right now (€)</div></div><input class="stinp" id="set-bal" type="text" inputmode="decimal" placeholder="e.g. 800" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" oninput="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Current balance</div><div class="s">Money you have right now (€)</div></div><input class="stinp" id="set-bal" type="text" inputmode="decimal" placeholder="e.g. 800" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Vault balance</div><div class="s">Locked savings (€)</div></div><input class="stinp" id="set-vault" type="text" inputmode="decimal" placeholder="0" onchange="sv()" onblur="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Expected monthly salary</div><div class="s">Prefills when logging salary (€)</div></div><input class="stinp" id="set-sal" type="text" inputmode="decimal" placeholder="e.g. 2500" onchange="sv()" onblur="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n" style="color:var(--text2)">How to log monthly salary</div><div class="s">Tap 💰 Salary on Home — preset fills in but you can edit the actual amount each month without changing this preset</div></div></div>
-        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" oninput="sv()"/></div>
+        <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="e.g. 300" onchange="sv()" onblur="sv()"/></div>
 
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% held back from spendable pool as cushion. E.g. 20% on €100 pool = €80 to spend, €20 reserved.</div></div>
           <div style="display:flex;align-items:center;gap:6px">
-            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" oninput="sv()"/>
+            <input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" style="width:60px;color:var(--purple);font-weight:700;font-size:16px;border:1.5px solid var(--border2);border-radius:var(--rs);padding:8px 10px;background:rgba(255,255,255,.85);outline:none" onchange="sv()" onblur="sv()"/>
             <span style="font-size:14px;font-weight:700;color:var(--purple)">%</span>
           </div>
         </div>
@@ -2075,20 +2075,7 @@ function getBalanceOnDate(ds){
   const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()){
-    // Add unlogged salary/RI scheduled for today to projected balance
-    const _ts=getSalaryForMonth(target.getFullYear(),target.getMonth());
-    if(_ts.amt>0&&target.getDate()===_ts.day){
-      const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
-      if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
-    }
-    (S.recurringIncome||[]).forEach(ri=>{
-      const _rb=parseDateStr(ri.date);
-      if(occursOnDate(_rb,target,ri.freq)){
-        const _rl=S.transactions.some(t=>t.type==='income'&&t.date===ds&&t.desc===ri.name);
-        if(!_rl)bal=parseFloat((bal+ri.amount).toFixed(2));
-      }
-    });
-    return bal;
+    return bal; // Today = S.balance exactly. Salary shown as scheduled event in detail.
   }
 
   // PAST: undo logged transactions after target date
@@ -3065,6 +3052,8 @@ function importData(event){
       document.getElementById('set-pd').value=S.payday||'last';
   // Restore buffer field value (safe — input is standalone, not in a form)
   const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const balEl2=document.getElementById('set-bal');if(balEl2&&document.activeElement!==balEl2)balEl2.value=(S.balance||0).toFixed(2).replace('.',',');
+  const vaultEl2=document.getElementById('set-vault');if(vaultEl2&&document.activeElement!==vaultEl2)vaultEl2.value=(S.vault||0).toFixed(2).replace('.',',');
   // monthlyBudget field removed from settings UI
       render();
       showToast('✅ Backup restored successfully!',3000);
@@ -3601,6 +3590,8 @@ window.addEventListener('load',()=>{
   document.getElementById('set-pd').value=S.payday||'last';
   // Restore buffer field value (safe — input is standalone, not in a form)
   const bufEl2=document.getElementById('set-buffer');if(bufEl2&&document.activeElement!==bufEl2)bufEl2.value=S.bufferPct!==undefined?S.bufferPct:20;
+  const balEl2=document.getElementById('set-bal');if(balEl2&&document.activeElement!==balEl2)balEl2.value=(S.balance||0).toFixed(2).replace('.',',');
+  const vaultEl2=document.getElementById('set-vault');if(vaultEl2&&document.activeElement!==vaultEl2)vaultEl2.value=(S.vault||0).toFixed(2).replace('.',',');
   // monthlyBudget field removed from settings UI
   document.getElementById('q-date').value=todayStr();
   if(S.balanceHidden){const eb=document.getElementById('eye-btn');if(eb)eb.textContent='🙈'}
