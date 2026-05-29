@@ -2075,12 +2075,7 @@ function getBalanceOnDate(ds){
   const r2=rate||63.5;
 
   if(target.getTime()===todayD.getTime()){
-    // Add today's unlogged salary to projected balance
-    const _ts=getSalaryForMonth(target.getFullYear(),target.getMonth());
-    if(_ts.amt>0&&target.getDate()===_ts.day){
-      const _tLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===ds);
-      if(!_tLogged)bal=parseFloat((bal+_ts.amt).toFixed(2));
-    }
+    // Return exact current balance — matches Settings. Future walk adds unlogged salary.
     return bal;
   }
 
