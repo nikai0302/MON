@@ -1998,6 +1998,9 @@ function parseDateStr(ds){
 // Priority: month-specific > global override > settings default
 function toWorkingDay(d,y,m){
   const maxD=lastDay(y,m);
+  // If day is at or within 1 of month end, use true last working day
+  // This handles day=30 in months with 31 days (e.g. Aug 31 Mon → 31, not 28)
+  if(d>=maxD-1)return lastWorkingDay(y,m);
   let day=Math.min(d,maxD);
   const dow=new Date(y,m,day).getDay();
   if(dow===6)day--;
