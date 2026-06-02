@@ -1996,20 +1996,29 @@ function parseDateStr(ds){
 
 // Get salary day+amount for a given month, respecting overrides
 // Priority: month-specific > global override > settings default
+function toWorkingDay(d,y,m){
+  const maxD=lastDay(y,m);
+  let day=Math.min(d,maxD);
+  const dow=new Date(y,m,day).getDay();
+  if(dow===6)day--;
+  else if(dow===0)day-=2;
+  return Math.max(1,day);
+}
+
 function getSalaryForMonth(y,m){
   const monthKey=y+'-'+String(m+1).padStart(2,'0');
-  const maxDay=lastDay(y,m);
   const mo=(S.salaryOverrides||[]).find(o=>o.month===monthKey);
   if(mo){
     const day=mo.date?parseDateStr(mo.date).getDate():resDay(S.payday,y,m);
-    return{amt:mo.amt||(S.salary||0),day:Math.min(day,maxDay)};
+    return{amt:mo.amt||(S.salary||0),day:toWorkingDay(day,y,m)};
   }
   if(S.salaryGlobalOverride&&(S.salaryGlobalOverride.day||S.salaryGlobalOverride.amt)){
-    const _day=S.salaryGlobalOverride.day?Math.min(S.salaryGlobalOverride.day,maxDay):resDay(S.payday,y,m);
-    return{amt:S.salaryGlobalOverride.amt||(S.salary||0),day:_day};
+    const _day=S.salaryGlobalOverride.day?S.salaryGlobalOverride.day:resDay(S.payday,y,m);
+    return{amt:S.salaryGlobalOverride.amt||(S.salary||0),day:toWorkingDay(_day,y,m)};
   }
   return{amt:S.salary||0,day:resDay(S.payday,y,m)};
 }
+
 
 function getEventsOnDate(ds){
   const r2=rate||63.5;
@@ -2050,20 +2059,23 @@ function getEventsOnDate(ds){
     const eur=getBillAmount(p);
 
     // Check if this bill falls on this date:
-    // 1. If override exists: only show on override date, not original
+    // 1. If override exists AND is still future/current: only show on override date
     if(p.nextDateOverride&&p.nextDateOverride.date){
       const ovd=parseDateStr(p.nextDateOverride.date);
-      const ovdTime=ovd.getTime();
-      if(target.getTime()===ovdTime){
-        // Show on override date (even if already paid)
-        const paid=isBillPaid(p);
-        events.push({type:'bill',name:p.name+(paid?' ✓':''),amt:eur,
-          icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
-          sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
-          scheduled:true,positive:false,paymentId:p.id,paid});
+      const now2=new Date();now2.setHours(0,0,0,0);
+      const overrideStillActive=ovd>=now2; // override only active if date hasn't passed
+      if(overrideStillActive){
+        if(target.getTime()===ovd.getTime()){
+          const paid=isBillPaid(p);
+          events.push({type:'bill',name:p.name+(paid?' ✓':''),amt:eur,
+            icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
+            sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
+            scheduled:true,positive:false,paymentId:p.id,paid});
+        }
+        return; // suppress original date only while override is active
       }
-      // Don't show on original date when override is active
-      return;
+      // Override date has passed — clear it and fall through to normal recurring logic
+      delete p.nextDateOverride;
     }
 
     // No override — show on recurring date, mark ✓ if already paid this cycle
@@ -2173,17 +2185,23 @@ function getBalanceOnDate(ds){
         const eur=getBillAmount(p);
         const base=parseDateStr(p.dueDate);
 
-        // If bill has a date override, apply it on the override date instead
+        // If bill has a date override that hasn't passed yet, use it
         if(p.nextDateOverride&&p.nextDateOverride.date){
-          if(!isBillPaid(p)){
-            const ovd=parseDateStr(p.nextDateOverride.date);
-            if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
-              const ovDay=ovd.getDate();
-              if(ovDay>=startDay&&ovDay<=endDay)
-                bal=parseFloat((bal-eur).toFixed(2));
+          const ovd=parseDateStr(p.nextDateOverride.date);
+          const now3=new Date();now3.setHours(0,0,0,0);
+          if(ovd>=now3){
+            // Override still active — use override date, not original
+            if(!isBillPaid(p)){
+              if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
+                const ovDay=ovd.getDate();
+                if(ovDay>=startDay&&ovDay<=endDay)
+                  bal=parseFloat((bal-eur).toFixed(2));
+              }
             }
+            return;
           }
-          return; // skip normal recurring calculation
+          // Override has passed — clear and use normal recurring dates
+          delete p.nextDateOverride;
         }
 
         // Skip if already paid
