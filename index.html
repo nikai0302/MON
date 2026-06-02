@@ -610,12 +610,7 @@ select.stinp{cursor:pointer}
           </select>
         </div>
         <div class="strow"><div class="stlbl"><div class="n">Spending buffer %</div><div class="s">% of spendable pool held as emergency cushion</div></div><input class="stinp" id="set-buffer" type="number" min="0" max="50" placeholder="20" onchange="sv()" onblur="sv()"/></div>
-        <div class="strow"><div class="stlbl"><div class="n">Mark paid button</div><div class="s">Show "mark paid" on bills within this many days of due date</div></div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <input class="stinp" id="set-markpaiddays" type="number" min="0" max="14" placeholder="3" style="width:55px" onchange="sv()" onblur="sv()"/>
-            <span style="font-size:13px;color:var(--text2)">days</span>
-          </div>
-        </div>
+
       </div>
 
       <div class="slbl">Data & backup</div>
@@ -2046,7 +2041,7 @@ function getEventsOnDate(ds){
     // Check if this bill falls on this date:
     // 1. If override exists: only show on override date, not original
     if(p.nextDateOverride&&p.nextDateOverride.date){
-      const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+      const ovd=parseDateStr(p.nextDateOverride.date);
       const ovdTime=ovd.getTime();
       if(target.getTime()===ovdTime){
         // Show on override date (even if already paid)
@@ -2060,14 +2055,14 @@ function getEventsOnDate(ds){
       return;
     }
 
-    // No override — show on recurring date (skip if already paid)
-    if(isBillPaid(p))return;
-    const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+    // No override — show on recurring date, mark ✓ if already paid this cycle
+    const _paid=isBillPaid(p);
+    const base=parseDateStr(p.dueDate);
     if(occursOnDate(base,target,p.freq))
-      events.push({type:'bill',name:p.name,amt:eur,
+      events.push({type:'bill',name:p.name+(_paid?' ✓':''),amt:eur,
         icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
         sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
-        scheduled:true,positive:false,paymentId:p.id,paid:false});
+        scheduled:true,positive:false,paymentId:p.id,paid:_paid});
   });
 
   return events;
@@ -2170,7 +2165,7 @@ function getBalanceOnDate(ds){
         // If bill has a date override, apply it on the override date instead
         if(p.nextDateOverride&&p.nextDateOverride.date){
           if(!isBillPaid(p)){
-            const ovd=new Date(p.nextDateOverride.date+'T00:00:00');ovd.setHours(0,0,0,0);
+            const ovd=parseDateStr(p.nextDateOverride.date);
             if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
               const ovDay=ovd.getDate();
               if(ovDay>=startDay&&ovDay<=endDay)
