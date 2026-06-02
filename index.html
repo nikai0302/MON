@@ -603,7 +603,7 @@ select.stinp{cursor:pointer}
         <div class="strow"><div class="stlbl"><div class="n">Monthly savings target</div><div class="s">Used only to reduce your safe-to-spend on Home. Nothing moves automatically — deposit to vault manually.</div></div><input class="stinp" id="set-svt" type="text" inputmode="decimal" placeholder="0,00" onchange="sv()" onblur="sv()"/></div>
         <div class="strow"><div class="stlbl"><div class="n">Payday</div><div class="s">Day you receive your salary each month</div></div>
           <select class="stinp" id="set-pd" onchange="sv()">
-            <option value="last">Last day of month</option>
+            <option value="last">Last working day of month</option>
             <option value="1">1st</option><option value="5">5th</option><option value="10">10th</option>
             <option value="15">15th</option><option value="20">20th</option><option value="25">25th</option>
             <option value="28">28th</option><option value="30">30th</option>
@@ -868,7 +868,18 @@ function fmtDate(d){return new Date(d).toLocaleDateString('en-GB',{weekday:'shor
 function fmtShort(d){return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
 function todayStr(){const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')}
 function lastDay(y,m){return new Date(y,m+1,0).getDate()}
-function resDay(s,y,m){return s==='last'?lastDay(y,m):Math.min(parseInt(s),lastDay(y,m))}
+function lastWorkingDay(y,m){
+  // Last day of month, rolled back to Friday if it falls on weekend
+  let d=lastDay(y,m);
+  const dow=new Date(y,m,d).getDay(); // 0=Sun,6=Sat
+  if(dow===6)d-=1; // Sat → Fri
+  else if(dow===0)d-=2; // Sun → Fri
+  return d;
+}
+function resDay(s,y,m){
+  if(s==='last')return lastWorkingDay(y,m);
+  return Math.min(parseInt(s),lastDay(y,m));
+}
 
 // ══════════════ RATE ══════════════
 async function fetchRate(){
@@ -1746,7 +1757,7 @@ function saveBillEdit(){
 function openSalaryChange(){
   document.getElementById('sas-desc').textContent=
     'Current: '+fmtE(S.salary||0)+'/mo · Pay day: '+
-    (S.payday==='last'?'Last day of month':'Day '+S.payday);
+    (S.payday==='last'?'Last working day':'Day '+S.payday);
   document.getElementById('sal-action-sheet').classList.add('open');
 }
 function closeSalAction(e){
@@ -2029,7 +2040,7 @@ function getEventsOnDate(ds){
 
   // Recurring income
   (S.recurringIncome||[]).forEach(ri=>{
-    const base=new Date(ri.date+'T00:00:00');base.setHours(0,0,0,0);
+    const base=parseDateStr(ri.date);
     if(occursOnDate(base,target,ri.freq))
       events.push({type:'income',name:ri.name,amt:ri.amount,icon:'💚',scheduled:true,positive:true,riId:ri.id});
   });
@@ -2160,7 +2171,7 @@ function getBalanceOnDate(ds){
       // ── Bills (respects nextDateOverride and paid status) ──
       S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
         const eur=getBillAmount(p);
-        const base=new Date(p.dueDate+'T00:00:00');base.setHours(0,0,0,0);
+        const base=parseDateStr(p.dueDate);
 
         // If bill has a date override, apply it on the override date instead
         if(p.nextDateOverride&&p.nextDateOverride.date){
