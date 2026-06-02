@@ -3230,6 +3230,7 @@ function render(){
   const poolRemaining=Math.max(0,parseFloat((bal-allBillsForPool).toFixed(2)));
   const poolExhausted=bal-allBillsForPool<0;
   const fixedPool=poolRemaining;
+  const dailyLimit=poolRemaining>0&&dl>0?parseFloat((poolRemaining/dl).toFixed(2)):0;
 
   // Days in cycle (for display)
   const todayD2=new Date();todayD2.setHours(0,0,0,0);
