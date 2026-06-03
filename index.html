@@ -1307,6 +1307,26 @@ function getCashflowShortfall(){
   }
   return{shortfallAmt:Math.max(0,-minBal),minBal};
 }
+function checkAndAutoCoverBills(){
+  const vault=parseFloat((S.vault||0).toFixed(2));
+  if(vault<=0){showToast('Vault is empty — nothing to cover');return;}
+  const{shortfallAmt,minBal}=getCashflowShortfall();
+  if(shortfallAmt<=0){showToast('✅ Cash flow looks fine — no shortfall detected');return;}
+  const coverAmt=parseFloat(Math.min(shortfallAmt,vault).toFixed(2));
+  // Use vault sheet for confirmation
+  _vaultMode='cover';
+  document.getElementById('vsh-title').textContent='Cover Cash Flow Shortfall';
+  document.getElementById('vsh-btn').textContent='Move from Vault';
+  document.getElementById('vsh-amt').value=coverAmt.toFixed(2).replace('.',',');
+  document.getElementById('vsh-err').style.display='none';
+  const covered=coverAmt>=shortfallAmt;
+  document.getElementById('vsh-info').innerHTML=
+    'Balance will dip to <b>'+fmtE(minBal)+'</b> before payday.<br>'+
+    'Shortfall: <b>'+fmtE(shortfallAmt)+'</b>'+(covered?'':' (vault can only cover '+fmtE(coverAmt)+')')+'<br>'+
+    'Move <b>'+fmtE(coverAmt)+'</b> from vault to balance?';
+  document.getElementById('vsh').style.display='flex';
+}
+
 function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&daysUntil(nextBillDate(p))<=0)}
 
 // ══════════════ STREAK ══════════════
@@ -3077,6 +3097,30 @@ function getCycleStart(){
   return new Date(prevY,prevM,resDay(S.payday,prevY,prevM));
 }
 function render(){
+  // Auto-pay any bill whose nextDateOverride date is today
+  {
+    const _td=todayStr();
+    let _didPay=false;
+    (S.payments||[]).forEach(p=>{
+      if(p.nextDateOverride&&p.nextDateOverride.date===_td){
+        const _r2=rate||63.5;
+        const _eur=parseFloat((p.nextDateOverride.amountEur||(p.currency==='PHP'?(p.nextDateOverride.amountPhp||p.amountPhp)/_r2:p.amountEur)).toFixed(2));
+        const _bd=nextBillDateRaw(p);
+        const _bdStr=_bd.getFullYear()+'-'+String(_bd.getMonth()+1).padStart(2,'0')+'-'+String(_bd.getDate()).padStart(2,'0');
+        if(!isBillPaid(p,_bd)){
+          S.balance=parseFloat(((S.balance||0)-_eur).toFixed(2));
+          S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (auto-paid)',cat:p.billCategory||'📦 Other',amt:_eur,date:_td});
+          p.paidUntil=_bdStr;
+          delete p.nextDateOverride;
+          const _bi=document.getElementById('set-bal');if(_bi)_bi.value=(S.balance||0).toFixed(2).replace('.',',');
+          showToast('✅ '+p.name+' auto-paid — '+fmtE(_eur)+' deducted');
+          _didPay=true;
+        }
+      }
+    });
+    if(_didPay){persist();window._calDayBals=null;}
+  }
+
   applyToggles();
   renderGoalsHome();
 
