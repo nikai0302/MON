@@ -2076,14 +2076,21 @@ function getEventsOnDate(ds){
       // tgtMonth < ovMonth: override is in future month, show normal date now
     }
 
-    // No override — show on recurring date, mark ✓ if already paid this cycle
+    // No override — show on recurring date only if NOT paid
     const _paid=isBillPaid(p,target);
     const base=parseDateStr(p.dueDate);
-    if(occursOnDate(base,target,p.freq))
-      events.push({type:'bill',name:p.name+(_paid?' ✓':''),amt:eur,
+    if(occursOnDate(base,target,p.freq)&&!_paid)
+      events.push({type:'bill',name:p.name,amt:eur,
         icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
         sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
-        scheduled:true,positive:false,paymentId:p.id,paid:_paid});
+        scheduled:true,positive:false,paymentId:p.id,paid:false});
+  });
+
+  // Show bill_paid transactions as ✓ events on the date they were paid
+  S.transactions.filter(t=>t.type==='bill_paid'&&t.date===ds).forEach(t=>{
+    const pName=t.desc.replace(' (auto-paid)','').replace(' (paid)','').replace(' (paid today)','');
+    events.push({type:'bill',name:pName+' ✓',amt:t.amt,
+      icon:'✅',scheduled:false,positive:false,paid:true,logged:false});
   });
 
   return events;
@@ -2319,7 +2326,8 @@ function renderCalView(){
   for(let d=1;d<=daysInMonth;d++){
     const ds=calViewYear+'-'+String(calViewMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     const evs=getEventsOnDate(ds);
-    const hasBill=evs.some(e=>e.type==='bill');
+    const hasBill=evs.some(e=>e.type==='bill'&&!e.paid);
+    const hasPaidBill=evs.some(e=>e.type==='bill'&&e.paid);
     const hasInc=evs.some(e=>e.positive&&!e.isDeduction);
     const hasLogged=evs.some(e=>e.logged);
     const isToday=new Date(calViewYear,calViewMonth,d).getTime()===today.getTime();
@@ -2332,6 +2340,7 @@ function renderCalView(){
     const dots=[
       hasInc?'<div class="cv-dot cv-dot-inc"></div>':'',
       hasBill?'<div class="cv-dot cv-dot-bill"></div>':'',
+      hasPaidBill&&!hasBill?'<div class="cv-dot" style="background:var(--green-d);opacity:.6"></div>':'',
       hasLogged&&!hasBill&&!hasInc?'<div class="cv-dot" style="background:var(--text3)"></div>':''
     ].join('');
     html+=`<div class="cv-day${isToday?' today-cell':''}${isSel?' selected-cell':''}${isPast&&!isToday?' past-day':''}" onclick="calViewSelectDay('${ds}')">
