@@ -3231,6 +3231,7 @@ function render(){
   const poolExhausted=bal-allBillsForPool<0;
   const fixedPool=poolRemaining;
   const dailyLimit=poolRemaining>0&&dl>0?parseFloat((poolRemaining/dl).toFixed(2)):0;
+  const bufferPct=(S.bufferPct!==undefined?S.bufferPct:20)/100;
 
   // Days in cycle (for display)
   const todayD2=new Date();todayD2.setHours(0,0,0,0);
@@ -3295,7 +3296,7 @@ function render(){
     cls='bad';
     msg='Spending pool exhausted for this cycle.';
     amt='€0';
-    sub='Buffer remaining: '+fmtE(bufferRemaining)+' · payday in '+dl+' day'+(dl!==1?'s':'');
+    sub='Pool exhausted · payday in '+dl+' day'+(dl!==1?'s':'');
   } else if(remainingToday<=0){
     cls='warn';msg='Daily limit reached for today';amt='€0';
     sub='Pool '+fmtE(poolRemaining)+' left · payday in '+dl+' day'+(dl!==1?'s':'');
