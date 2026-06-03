@@ -1593,6 +1593,7 @@ function markPaid(pid){
   // Use bill_paid type so it doesn't affect spending pool (cycleSpend only counts 'spend')
   S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (paid)',cat,amt:eur,date:todayStr()});
   p.paidUntil=bdStr;
+  delete p.nextDateOverride; // clear override so future months show correctly
   if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
   const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
@@ -1703,19 +1704,7 @@ function saveBillEdit(){
         else{p.nextDateOverride.amountEur=amt;}
       }
     }
-    // Moving to today = auto-deduct immediately (no need to tap mark paid)
-    if(newDate===todayStr()){
-      const eur2=getBillAmount?getBillAmount(p):parseFloat((p.currency==='PHP'?p.amountPhp/r2:p.amountEur).toFixed(2));
-      const rawBd=nextBillDateRaw?nextBillDateRaw(p):p;
-      const paidDs=rawBd.getFullYear?rawBd.getFullYear()+'-'+String(rawBd.getMonth()+1).padStart(2,'0')+'-'+String(rawBd.getDate()).padStart(2,'0'):newDate;
-      S.balance=parseFloat(((S.balance||0)-eur2).toFixed(2));
-      S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (paid today)',cat:p.billCategory||'📦 Other',amt:eur2,date:todayStr()});
-      p.paidUntil=paidDs;
-      const bi2=document.getElementById('set-bal');if(bi2)bi2.value=(S.balance||0).toFixed(2).replace('.',',');
-      showToast('✅ '+p.name+' moved to today & paid — '+fmtE(eur2)+' deducted');
-    } else {
-      showToast('✅ Next bill moved to '+fmtDate(newDate));
-    }
+    showToast('✅ '+p.name+' moved to '+fmtDate(newDate)+' — auto-pays when date arrives');
   } else {
     // Update permanently including end date
     p.dueDate=newDate;
@@ -3309,7 +3298,7 @@ function render(){
   bz.innerHTML=`<div class="banner ${cls}"><div class="b-eye">${ds}</div><div class="b-sub" style="font-size:15px;font-weight:700;margin-top:4px">${sub}</div></div>`;
   // Overdue
   const oz=document.getElementById('ovd-zone');const over=overdueP();
-  oz.innerHTML=over.length?`<div class="ovd"><div class="ovd-title">⚠️ Due today or overdue</div>${over.map(p=>{const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;return`<div class="ovd-row"><span class="ovd-lbl">${p.name}${p.currency==='PHP'?' ('+fmtP(p.amountPhp)+')':''} — ${fmtE(eur)}</span><button class="ovd-btn" onclick="markPaid(${p.id})">Mark paid</button></div>`}).join('')}</div>`:'';
+  oz.innerHTML=over.length?`<div class="ovd"><div class="ovd-title">⚠️ Due today or overdue</div>${over.map(p=>{const eur=p.currency==='PHP'?p.amountPhp/r2:p.amountEur;return`<div class="ovd-row"><span class="ovd-lbl">${p.name}${p.currency==='PHP'?' ('+fmtP(p.amountPhp)+')':''} — ${fmtE(eur)}</span><span class="ovd-btn" style="opacity:.6">auto-pays today</span></div>`}).join('')}</div>`:'';
   // Cycle summary
   const cycleStartRender=getCycleStart();const ctxs=S.transactions.filter(t=>new Date(t.date+'T00:00:00')>=cycleStartRender);
   const cIn=ctxs.filter(t=>t.type!=='spend'&&t.type!=='vault').reduce((a,t)=>a+t.amt,0);
