@@ -1211,15 +1211,14 @@ function nextBillDate(p){
   }
   return d;
 }
-function isBillPaid(p){
+function isBillPaid(p, occDate){
+  // occDate: specific Date object for the occurrence to check
+  // Bill is paid if paidUntil covers that occurrence
   if(!p.paidUntil)return false;
-  const now=new Date();now.setHours(0,0,0,0);
-  const paidD=new Date(p.paidUntil+'T00:00:00');paidD.setHours(0,0,0,0);
-  // Paid if paidUntil matches the current next bill date (or is in future)
-  const nextD=nextBillDateRaw(p); // use raw (no override) to get real due date
-  return paidD.getTime()===nextD.getTime()||paidD>=now;
+  const paidD=parseDateStr(p.paidUntil);
+  const checkD=occDate||nextBillDateRaw(p);
+  return paidD>=checkD;
 }
-
 // nextBillDateRaw: same as nextBillDate but ignores overrides
 function nextBillDateRaw(p){
   const now=new Date();now.setHours(0,0,0,0);
@@ -1265,9 +1264,9 @@ function billsBefore(){
   // This is what the balance currently needs to cover
   const nextIncome=getNextIncomeDate();
   const r2=rate||63.5;let total=0;const list=[];
-  S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const bd=nextBillDate(p);
-    if(bd<nextIncome){
+    if(bd<nextIncome&&!isBillPaid(p,bd)){
       const eur=getBillAmount(p);
       total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur,nextIncome});
     }
@@ -1278,9 +1277,9 @@ function billsBefore(){
 function billsBeforePayday(){
   // Returns ALL bills before payday (used for pool calculation only)
   const pd=getNextPayday();const r2=rate||63.5;let total=0;const list=[];
-  S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p)).forEach(p=>{
+  S.payments.filter(p=>!isPaymentExpired(p)).forEach(p=>{
     const bd=nextBillDate(p);
-    if(bd<pd){
+    if(bd<pd&&!isBillPaid(p,bd)){
       const eur=getBillAmount(p);
       total+=eur;list.push({...p,bd,daysTo:daysUntil(bd),eurCost:eur});
     }
@@ -2038,28 +2037,27 @@ function getEventsOnDate(ds){
   S.payments.filter(p=>!isPaymentExpired(p,target)).forEach(p=>{
     const eur=getBillAmount(p);
 
-    // Check if this bill falls on this date:
-    // 1. If override exists AND is still future/current: only show on override date
+    // Check if this bill has a one-off override
     if(p.nextDateOverride&&p.nextDateOverride.date){
       const ovd=parseDateStr(p.nextDateOverride.date);
-      const now2=new Date();now2.setHours(0,0,0,0);
-      const overrideStillActive=ovd>=now2; // override only active if date hasn't passed
-      if(overrideStillActive){
+      const ovMonth=ovd.getFullYear()*12+ovd.getMonth();
+      const tgtMonth=target.getFullYear()*12+target.getMonth();
+      if(ovMonth===tgtMonth){
+        // Override is in this month — show on override date, suppress normal date
         if(target.getTime()===ovd.getTime()){
-          const paid=isBillPaid(p);
+          const paid=isBillPaid(p,ovd);
           events.push({type:'bill',name:p.name+(paid?' ✓':''),amt:eur,
             icon:p.currency==='PHP'?'🇵🇭':detectNameMeta(p.name).icon,
             sub:p.currency==='PHP'?fmtP(p.amountPhp)+' via TapTap':null,
             scheduled:true,positive:false,paymentId:p.id,paid});
         }
-        return; // suppress original date only while override is active
-      }
-      // Override date has passed — clear it and fall through to normal recurring logic
-      delete p.nextDateOverride;
+        return; // suppress original date this month
+      } // if tgtMonth > ovMonth: override is past, fall through to normal recurring
+      // tgtMonth < ovMonth: override is in future month, show normal date now
     }
 
     // No override — show on recurring date, mark ✓ if already paid this cycle
-    const _paid=isBillPaid(p);
+    const _paid=isBillPaid(p,target);
     const base=parseDateStr(p.dueDate);
     if(occursOnDate(base,target,p.freq))
       events.push({type:'bill',name:p.name+(_paid?' ✓':''),amt:eur,
@@ -2165,23 +2163,21 @@ function getBalanceOnDate(ds){
         const eur=getBillAmount(p);
         const base=parseDateStr(p.dueDate);
 
-        // If bill has a date override that hasn't passed yet, use it
+        // If bill has a one-off date override
         if(p.nextDateOverride&&p.nextDateOverride.date){
           const ovd=parseDateStr(p.nextDateOverride.date);
-          const now3=new Date();now3.setHours(0,0,0,0);
-          if(ovd>=now3){
-            // Override still active — use override date, not original
-            if(!isBillPaid(p)){
-              if(ovd.getFullYear()===cy&&ovd.getMonth()===cm){
-                const ovDay=ovd.getDate();
-                if(ovDay>=startDay&&ovDay<=endDay)
-                  bal=parseFloat((bal-eur).toFixed(2));
-              }
+          const ovMonth=ovd.getFullYear()*12+ovd.getMonth();
+          const curMonth=cy*12+cm;
+          if(ovMonth===curMonth){
+            // Override is in this projected month — deduct on override day
+            if(!isBillPaid(p,ovd)){
+              const ovDay=ovd.getDate();
+              if(ovDay>=startDay&&ovDay<=endDay)
+                bal=parseFloat((bal-eur).toFixed(2));
             }
-            return;
-          }
-          // Override has passed — clear and use normal recurring dates
-          delete p.nextDateOverride;
+            return; // suppress normal date this month
+          } // if curMonth > ovMonth: override is past, fall through to normal recurring
+          // Override is in a future month — use normal date for current month
         }
 
         // Skip if already paid
@@ -2192,13 +2188,13 @@ function getBalanceOnDate(ds){
           const baseYM=base.getFullYear()*12+base.getMonth();
           const curYM=cy*12+cm;
           const billDate=new Date(cy,cm,bDay);
-          if(curYM>=baseYM&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate))
+          if(curYM>=baseYM&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate)&&!isBillPaid(p,billDate))
             bal=parseFloat((bal-eur).toFixed(2));
         } else if(p.freq==='annual'){
           if(base.getMonth()===cm){
             const bDay=base.getDate();
             const billDate=new Date(cy,cm,bDay);
-            if(cy>=base.getFullYear()&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate))
+            if(cy>=base.getFullYear()&&bDay>=startDay&&bDay<=endDay&&!isPaymentExpired(p,billDate)&&!isBillPaid(p,billDate))
               bal=parseFloat((bal-eur).toFixed(2));
           }
         } else if(p.freq==='weekly'){
@@ -2212,7 +2208,8 @@ function getBalanceOnDate(ds){
         } else if(p.freq==='once'){
           if(base.getFullYear()===cy&&base.getMonth()===cm){
             const bDay=base.getDate();
-            if(bDay>=startDay&&bDay<=endDay)
+            const onceBillDate=new Date(cy,cm,bDay);
+          if(bDay>=startDay&&bDay<=endDay&&!isBillPaid(p,onceBillDate))
               bal=parseFloat((bal-eur).toFixed(2));
           }
         }
