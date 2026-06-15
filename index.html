@@ -2207,9 +2207,6 @@ function getBalanceOnDate(ds){
           // Override is in a future month — use normal date for current month
         }
 
-        // Skip if already paid
-        if(isBillPaid(p))return;
-
         if(p.freq==='monthly'){
           const bDay=Math.min(base.getDate(),daysInCurMonth);
           const baseYM=base.getFullYear()*12+base.getMonth();
