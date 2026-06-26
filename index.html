@@ -1545,7 +1545,7 @@ function logTx(){
   updateStreak(todayStr(),todaySpend<=dailyLimit);
   document.getElementById('q-desc').value='';document.getElementById('q-amt').value='';document.getElementById('q-cat').value='';
   document.getElementById('q-date').value=todayStr();stype(ltype);
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();render();flashBar('ok');btnOK('qadd-btn','Add');
   showToast(ltype==='salary'?('💰 Salary logged: '+fmtE(amt)):ltype==='income'?'✅ Income added':ltype==='vault'?'🏦 Moved to vault':'✅ Spend logged');
 }
@@ -1554,7 +1554,7 @@ function deleteTx(id){
   if(tx.type==='vault'){S.balance=parseFloat(((S.balance||0)+tx.amt).toFixed(2));S.vault=parseFloat(((S.vault||0)-tx.amt).toFixed(2));const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',')}
   else{const isIn=tx.type==='income'||tx.type==='salary';S.balance=parseFloat(((S.balance||0)+(isIn?-tx.amt:tx.amt)).toFixed(2))}
   S.transactions=S.transactions.filter(t=>t.id!==id);
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();render();
 }
 function openETX(id){
@@ -1573,7 +1573,7 @@ function saveETX(){
   const isIn=tx.type==='income'||tx.type==='salary';
   S.balance=parseFloat(((S.balance||0)+(isIn?-tx.amt:tx.amt)+(isIn?na:-na)).toFixed(2));
   tx.amt=na;tx.desc=nd;tx.date=ndt;
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   persist();closeETX();render();
 }
 function confirmRI(riId){
@@ -1581,7 +1581,7 @@ function confirmRI(riId){
   // Log as income transaction
   S.balance=parseFloat(((S.balance||0)+ri.amount).toFixed(2));
   S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();render();
   showToast('💚 '+fmtE(ri.amount)+' logged from '+ri.name);
@@ -1614,7 +1614,7 @@ function markPaid(pid){
   p.paidUntil=bdStr;
   delete p.nextDateOverride; // clear override so future months show correctly
   if(p.freq==='once')S.payments=S.payments.filter(x=>x.id!==pid);
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   if(p.currency==='PHP')recordTapTapTransfer(p.id);
   window._calDayBals=null;
   persist();render();
@@ -1933,7 +1933,7 @@ function saveRIEdit(){
     // Log as income transaction
     S.balance=parseFloat(((S.balance||0)+amt).toFixed(2));
     S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💰 Income',amt,date});
-    const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+    const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
     showToast('✅ '+ri.name+' logged: +'+fmtE(amt));
     // Advance the recurring date to next occurrence
     ri.date=date;
@@ -3024,7 +3024,7 @@ function vshConfirm(){
     showToast('🏦 '+fmtE(amt)+' moved to balance');
   }
   document.getElementById('vsh').style.display='none';
-  const bi=document.getElementById('set-bal');if(bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
+  const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   const si=document.getElementById('set-vault');if(si)si.value=(S.vault||0).toFixed(2).replace('.',',');
   render(); // recalculates fixedPool first, then persists with new correct value
 }
@@ -3044,8 +3044,8 @@ function sv(){
   const mpdEl=document.getElementById('set-markpaiddays');
   if(mpdEl){const mpdVal=parseInt(mpdEl.value);if(!isNaN(mpdVal)&&mpdVal>=0&&mpdVal<=14)S.markPaidDays=mpdVal;}
   const budgetEl=document.getElementById('set-budget');if(budgetEl)S.monthlyBudget=parseCur(budgetEl.value)||0;
-  // Reset pool so it recalculates with new values
-  render(); // render recalculates and persists
+  persist(); // save to localStorage immediately
+  render();
 }
 function exportData(){
   const data=JSON.stringify(S,null,2);
@@ -3118,7 +3118,7 @@ function render(){
           S.transactions.push({id:Date.now(),type:'bill_paid',desc:p.name+' (auto-paid)',cat:p.billCategory||'📦 Other',amt:_eur,date:_td});
           p.paidUntil=_bdStr;
           delete p.nextDateOverride;
-          const _bi=document.getElementById('set-bal');if(_bi)_bi.value=(S.balance||0).toFixed(2).replace('.',',');
+          const _bi=document.getElementById('set-bal');if(_bi&&document.activeElement!==_bi)_bi.value=(S.balance||0).toFixed(2).replace('.',',');
           showToast('✅ '+p.name+' auto-paid — '+fmtE(_eur)+' deducted');
           _didPay=true;
         }
