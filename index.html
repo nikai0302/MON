@@ -1327,7 +1327,7 @@ function checkAndAutoCoverBills(){
   document.getElementById('vsh').style.display='flex';
 }
 
-function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&daysUntil(nextBillDate(p))<=0)}
+function overdueP(){return S.payments.filter(p=>!isPaymentExpired(p)&&!isBillPaid(p,nextBillDate(p))&&daysUntil(nextBillDate(p))<=0)}
 
 // ══════════════ STREAK ══════════════
 function updateStreak(date,underLimit){
@@ -1581,6 +1581,7 @@ function confirmRI(riId){
   // Log as income transaction
   S.balance=parseFloat(((S.balance||0)+ri.amount).toFixed(2));
   S.transactions.push({id:Date.now(),type:'income',desc:ri.name,cat:'💚 Income',amt:ri.amount,date:todayStr()});
+  const _rbi=document.getElementById('set-bal');if(_rbi&&document.activeElement!==_rbi)_rbi.value=(S.balance||0).toFixed(2).replace('.',',');
   const bi=document.getElementById('set-bal');if(bi&&document.activeElement!==bi)bi.value=(S.balance||0).toFixed(2).replace('.',',');
   S.fixedPool=0;S.fixedPoolCycleKey='';
   persist();render();
@@ -1809,6 +1810,7 @@ function saveSalaryEdit(scope){
     showToast('Salary: '+_dayLabel+' · '+fmtE(newAmt)+' for all months');
   } else {
     if(!S.salaryOverrides)S.salaryOverrides=[];
+  if(!Array.isArray(S.recurringIncome))S.recurringIncome=[];
     S.salaryOverrides=S.salaryOverrides.filter(o=>o.month!==month);
     const override={month,amt:newAmt};
     if(dateVal)override.date=dateVal;
@@ -1880,6 +1882,8 @@ function submitRIF(){
     S.recurringIncome.push({id:Date.now(),name,amount,date,freq,overrides:[]});
   }
   persist();document.getElementById('rif-sheet').classList.remove('open');render();showToast('✅ Recurring income saved');
+  // If new RI starts today, reset the RI prompt flag so it shows immediately
+  if(!rifEditId){window._riPrompted={};}
 }
 function delRI(id){
   if(!confirm('Remove this recurring income?'))return;
