@@ -2141,15 +2141,7 @@ function getBalanceOnDate(ds){
     const startDay=isFirstMonth?td2+1:1;
     const endDay=isLastMonth?ed:daysInCurMonth;
 
-    // If first month and today has unlogged salary, add it (salary day < startDay)
-    if(isFirstMonth){
-      const _todayDs=ty+'-'+String(tm+1).padStart(2,'0')+'-'+String(td2).padStart(2,'0');
-      const _st=getSalaryForMonth(ty,tm);
-      if(_st.amt>0&&_st.day===td2){
-        const _stLogged=S.transactions.some(t=>(t.type==='salary'||t.type==='income')&&t.date===_todayDs);
-        if(!_stLogged)bal=parseFloat((bal+_st.amt).toFixed(2));
-      }
-    }
+    // Future balance starts from S.balance — log salary on home to update
 
     if(startDay<=endDay){
       // ── Salary (respects overrides) ──
