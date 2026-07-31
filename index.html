@@ -1212,12 +1212,15 @@ function nextBillDate(p){
   return d;
 }
 function isBillPaid(p, occDate){
-  // occDate: specific Date object for the occurrence to check
-  // Bill is paid if paidUntil covers that occurrence
   if(!p.paidUntil)return false;
   const paidD=parseDateStr(p.paidUntil);
-  const checkD=occDate||nextBillDateRaw(p);
-  return paidD>=checkD;
+  if(occDate){
+    // Check if paidUntil covers this specific occurrence date
+    return paidD>=occDate;
+  }
+  // No occDate: bill is paid if paidUntil is today or in the future
+  const now=new Date();now.setHours(0,0,0,0);
+  return paidD>=now;
 }
 // nextBillDateRaw: same as nextBillDate but ignores overrides
 function nextBillDateRaw(p){
